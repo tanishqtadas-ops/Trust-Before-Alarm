@@ -121,6 +121,10 @@
 | `genuine_events.arrival_delay_min` | `0` | A.3 | "Arrival delay per sensor 0 to 10 min" |
 | `genuine_events.arrival_delay_max` | `10` | A.3 | "Arrival delay per sensor 0 to 10 min" |
 | `genuine_events.detectability_threshold_sigma` | `3.0` | A.3 | "genuine_event = 1 while event contribution at >= 1 sensor exceeds 3 x sigma_k" |
+| `genuine_events.start_step_distribution` | `Uniform[0, 1920)` | Decision 18 | "Approved engineering choice: sampled uniformly across {0, ..., T-1}, independent additive overlap" |
+| `genuine_events.ramp_asymmetry` | `independent` | Decision 19 | "Implementation choice: rise, hold, and fall sampled independently from configured ranges" |
+| `genuine_events.step_recovery_waveform` | `exponential` | Decision 20 | "Implementation choice: Delta T_k(t) = A_k * M * exp(-(t - t_arr)/tau)" |
+| `genuine_events.pulse_waveform` | `boxcar` | Decision 21 | "Implementation choice: Delta T_k(t) = A_k * M on [t_arr, t_arr + t_pulse)" |
 
 ### Fault Injectors (Appendix A.4)
 | Config Key | YAML Value | Appendix A Reference | Appendix A Source Text / Decision |

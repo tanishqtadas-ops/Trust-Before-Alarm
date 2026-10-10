@@ -9,6 +9,16 @@ from src.sim.environment import (
     EnvironmentSimulator,
     generate_environment_series,
 )
+from src.sim.events import (
+    EventEpisode,
+    EventGenerator,
+    EventSeries,
+    apply_events_to_environment,
+    generate_pulse,
+    generate_ramp,
+    generate_step_exponential_recovery,
+    generate_sustained_shift,
+)
 from src.sim.profile import (
     TemperatureProfile,
     TemperatureScenarioParams,
@@ -38,6 +48,14 @@ __all__ = [
     "EnvironmentSeries",
     "EnvironmentSimulator",
     "generate_environment_series",
+    "EventEpisode",
+    "EventSeries",
+    "EventGenerator",
+    "apply_events_to_environment",
+    "generate_step_exponential_recovery",
+    "generate_ramp",
+    "generate_pulse",
+    "generate_sustained_shift",
     "SensorStream",
     "VirtualSensorGroup",
     "VirtualSensorSimulator",

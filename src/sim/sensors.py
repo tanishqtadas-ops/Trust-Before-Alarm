@@ -253,7 +253,7 @@ class SensorStream:
         canonical_values: Sensor physical values in canonical Celsius before unit scaling, shape (T,).
                           Contains NaN for missing readings.
         canonical_clean_values: Sensor physical values in canonical Celsius without missing data, shape (T,).
-        environmental_values: True environmental series in canonical Celsius (input to sensor), shape (T,).
+        environmental_values: True environmental series in canonical Celsius (unperturbed), shape (T,).
         missing_mask: Boolean array indicating missing readings (True = missing/NaN), shape (T,).
         params: TemperatureSensorParams used for this sensor.
         unit_scaler: UnitScaler applied to convert canonical to observable values.
@@ -261,6 +261,8 @@ class SensorStream:
         total_steps: Total duration of the simulation run in steps.
         warmup_steps: Number of initial warm-up steps.
         scored_steps: Number of evaluation/scored steps.
+        physical_values: Event-adjusted physical temperature before sensor transduction, shape (T,).
+        event_contributions: Genuine environmental event contribution Delta T_k(t), shape (T,).
     """
     sensor_id: str
     values: np.ndarray
@@ -274,6 +276,14 @@ class SensorStream:
     total_steps: int
     warmup_steps: int
     scored_steps: int
+    physical_values: Optional[np.ndarray] = None
+    event_contributions: Optional[np.ndarray] = None
+
+    def __post_init__(self) -> None:
+        if self.physical_values is None:
+            object.__setattr__(self, "physical_values", self.environmental_values.copy())
+        if self.event_contributions is None:
+            object.__setattr__(self, "event_contributions", np.zeros_like(self.environmental_values))
 
     @property
     def warmup_values(self) -> np.ndarray:
@@ -316,6 +326,10 @@ class SensorStream:
             "canonical_min": float(np.min(valid_vals)) if len(valid_vals) > 0 else float("nan"),
             "canonical_max": float(np.max(valid_vals)) if len(valid_vals) > 0 else float("nan"),
             "canonical_mean": float(np.mean(valid_vals)) if len(valid_vals) > 0 else float("nan"),
+            "event_contribution_min": float(np.min(self.event_contributions)),
+            "event_contribution_max": float(np.max(self.event_contributions)),
+            "physical_min": float(np.min(self.physical_values)),
+            "physical_max": float(np.max(self.physical_values)),
             "params": self.params.to_dict(),
             "unit_scaler": self.unit_scaler.to_dict(),
         }
@@ -328,6 +342,7 @@ class VirtualSensorGroup:
     sensors: Dict[str, SensorStream]
     environment: EnvironmentSeries
     scenario_params: TemperatureScenarioParams
+    events: Optional[Any] = None
 
     @property
     def sensor_ids(self) -> List[str]:
@@ -389,6 +404,44 @@ class VirtualSensorGroup:
                 })
         return pd.DataFrame(rows)
 
+    def to_ground_truth_events_dataframe(
+        self,
+        scenario_id: str = "scenario_0000",
+    ) -> pd.DataFrame:
+        """Export group-level ground truth events table (Appendix A.7)."""
+        dt = float(self.environment.timestamps_minutes[1] - self.environment.timestamps_minutes[0]) if len(self.environment.timestamps_minutes) > 1 else 1.0
+        if self.events is not None:
+            return self.events.to_ground_truth_dataframe(
+                scenario_id=scenario_id,
+                sampling_rate_minutes=dt,
+            )
+        timestamps = self.environment.timestamps_minutes
+        return pd.DataFrame({
+            "scenario_id": scenario_id,
+            "group_id": self.group_id,
+            "timestamp": timestamps,
+            "genuine_event": np.zeros(self.total_steps, dtype=int),
+            "event_below_detectability": np.zeros(self.total_steps, dtype=int),
+            "event_id": ["" for _ in range(self.total_steps)],
+            "event_magnitude_sigma": np.zeros(self.total_steps, dtype=float),
+            "true_event_breadth": np.zeros(self.total_steps, dtype=float),
+            "true_group_value": self.environment.values.copy(),
+        })
+
+    def episodes_to_dataframe(
+        self,
+        scenario_id: str = "scenario_0000",
+    ) -> pd.DataFrame:
+        """Export episode ground-truth table as specified in Appendix A.7."""
+        if self.events is not None:
+            return self.events.episodes_to_dataframe(scenario_id=scenario_id)
+        return pd.DataFrame(columns=[
+            "scenario_id", "group_id", "event_id", "event_type", "start_step",
+            "start_time_minutes", "magnitude", "abs_magnitude", "sign", "scope",
+            "affected_sensors", "sensor_attenuations", "sensor_delays", "shape_params",
+            "is_detectable", "end_step",
+        ])
+
 
 class VirtualSensorSimulator:
     """Simulator for generating virtual sensor readings from true environment series."""
@@ -424,6 +477,8 @@ class VirtualSensorSimulator:
         bounds = self.config["temperature_profile"]["bounds"]
         self.sensor_clip_min = float(bounds["sensor_clip_min"])
         self.sensor_clip_max = float(bounds["sensor_clip_max"])
+        self.env_clip_min = float(bounds["environment_clip_min"])
+        self.env_clip_max = float(bounds["environment_clip_max"])
 
     def simulate_sensor(
         self,
@@ -435,8 +490,11 @@ class VirtualSensorSimulator:
         timestamps_minutes: Optional[np.ndarray] = None,
         warmup_steps: Optional[int] = None,
         scored_steps: Optional[int] = None,
+        physical_values: Optional[np.ndarray] = None,
+        event_contributions: Optional[np.ndarray] = None,
+        baseline_env_values: Optional[np.ndarray] = None,
     ) -> SensorStream:
-        """Simulate an individual sensor from environmental values.
+        """Simulate an individual sensor from physical values.
         
         Order of physical transformations:
           1. Response lag (tau)
@@ -448,7 +506,7 @@ class VirtualSensorSimulator:
           7. Unit scaling (applied last)
           
         Args:
-            env_values: True environmental series in canonical Celsius, shape (T,).
+            env_values: Physical temperature array before sensor transduction, shape (T,).
             params: TemperatureSensorParams for this sensor.
             unit_scaler: UnitScaler for observable scaling.
             rng: Numpy Generator.
@@ -456,6 +514,9 @@ class VirtualSensorSimulator:
             timestamps_minutes: Optional array of timestamps in minutes.
             warmup_steps: Optional warm-up steps count.
             scored_steps: Optional scored steps count.
+            physical_values: Optional physical temperature array (defaults to env_values).
+            event_contributions: Optional genuine event contribution Delta T_k(t).
+            baseline_env_values: Optional unperturbed baseline environment.
             
         Returns:
             SensorStream instance.
@@ -518,12 +579,16 @@ class VirtualSensorSimulator:
         # 7. Unit scaling applied last (P1.1 principle)
         observable_values = unit_scaler.apply(canonical_values)
 
+        phys_vals = physical_values if physical_values is not None else env_values.copy()
+        event_contrib = event_contributions if event_contributions is not None else np.zeros_like(env_values)
+        base_env = baseline_env_values if baseline_env_values is not None else env_values.copy()
+
         return SensorStream(
             sensor_id=params.sensor_id,
             values=observable_values,
             canonical_values=canonical_values,
             canonical_clean_values=canonical_clean,
-            environmental_values=env_values.copy(),
+            environmental_values=base_env,
             missing_mask=missing_mask,
             params=params,
             unit_scaler=unit_scaler,
@@ -531,6 +596,8 @@ class VirtualSensorSimulator:
             total_steps=steps,
             warmup_steps=w_steps,
             scored_steps=s_steps,
+            physical_values=phys_vals,
+            event_contributions=event_contrib,
         )
 
     def simulate_group(
@@ -541,6 +608,8 @@ class VirtualSensorSimulator:
         group_id: str = "group_00",
         rng: Optional[Union[int, np.random.Generator]] = None,
         seed: Optional[int] = None,
+        events: Optional[Any] = None,
+        generate_events: bool = False,
     ) -> VirtualSensorGroup:
         """Simulate all sensors for a co-located group.
         
@@ -551,6 +620,8 @@ class VirtualSensorSimulator:
             group_id: Group identifier string.
             rng: Optional integer seed or numpy Generator.
             seed: Optional explicit integer seed.
+            events: Optional pre-generated EventSeries instance.
+            generate_events: If True and events is None, generates genuine events.
             
         Returns:
             VirtualSensorGroup instance.
@@ -563,6 +634,20 @@ class VirtualSensorSimulator:
         else:
             params_list = list(sensor_params)
 
+        # Handle events
+        active_events = events
+        if active_events is None and generate_events:
+            from src.sim.events import EventGenerator
+            event_gen = EventGenerator(config=self.config)
+            active_events = event_gen.generate_events(
+                sensor_params=params_list,
+                total_steps=environment.total_steps,
+                sampling_rate_minutes=self.sampling_rate_minutes,
+                rng=gen,
+                group_id=group_id,
+                baseline_env_values=environment.values,
+            )
+
         # Generate group noise (handles 1-factor mild correlation)
         noise_map = generate_group_noise(
             steps=environment.total_steps,
@@ -573,8 +658,18 @@ class VirtualSensorSimulator:
         streams: Dict[str, SensorStream] = {}
         for s_param in params_list:
             s_noise = noise_map[s_param.sensor_id]
+            if active_events is not None:
+                contrib = active_events.sensor_contributions.get(
+                    s_param.sensor_id, np.zeros(environment.total_steps, dtype=np.float64)
+                )
+                raw_phys = environment.values + contrib
+                phys_vals = np.clip(raw_phys, self.env_clip_min, self.env_clip_max)
+            else:
+                contrib = np.zeros(environment.total_steps, dtype=np.float64)
+                phys_vals = environment.values.copy()
+
             stream = self.simulate_sensor(
-                env_values=environment.values,
+                env_values=phys_vals,
                 params=s_param,
                 unit_scaler=environment.params.unit_scaler,
                 rng=gen,
@@ -582,6 +677,9 @@ class VirtualSensorSimulator:
                 timestamps_minutes=environment.timestamps_minutes,
                 warmup_steps=environment.warmup_steps,
                 scored_steps=environment.scored_steps,
+                physical_values=phys_vals,
+                event_contributions=contrib,
+                baseline_env_values=environment.values,
             )
             streams[s_param.sensor_id] = stream
 
@@ -590,6 +688,7 @@ class VirtualSensorSimulator:
             sensors=streams,
             environment=environment,
             scenario_params=environment.params,
+            events=active_events,
         )
 
 
@@ -601,6 +700,8 @@ def simulate_sensors(
     seed: Optional[int] = None,
     rng: Optional[Union[int, np.random.Generator]] = None,
     config: Optional[Dict[str, Any]] = None,
+    events: Optional[Any] = None,
+    generate_events: bool = False,
 ) -> VirtualSensorGroup:
     """Convenience top-level function to simulate virtual sensors.
     
@@ -612,6 +713,8 @@ def simulate_sensors(
         seed: Optional integer seed for reproducibility.
         rng: Optional seed or numpy Generator.
         config: Optional configuration dictionary.
+        events: Optional pre-generated EventSeries instance.
+        generate_events: If True and events is None, generates genuine events.
         
     Returns:
         VirtualSensorGroup instance.
@@ -624,4 +727,6 @@ def simulate_sensors(
         group_id=group_id,
         rng=rng,
         seed=seed,
+        events=events,
+        generate_events=generate_events,
     )
