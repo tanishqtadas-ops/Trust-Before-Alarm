@@ -85,6 +85,8 @@ temperature_profile:
 genuine_events:
   count_poisson_mean: 1.2                    # Appendix A.3: Poisson mean 1.2
   count_max: 3                               # Appendix A.3: max 3 (about 30% of scenarios none)
+  start_step_min: 480                        # Decision 18 (approved engineering choice): scored window start (first 480 steps event-free)
+  start_step_max: 1919                       # Decision 18 (approved engineering choice): scored window end (step 1919 inclusive)
   type_probs:
     step_exponential_recovery: 0.40          # Appendix A.3: step with exponential recovery 40%
     ramp: 0.25                               # Appendix A.3: ramp 25%

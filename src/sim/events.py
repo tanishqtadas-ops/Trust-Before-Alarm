@@ -361,6 +361,12 @@ class EventGenerator:
         # Detectability threshold
         self.detectability_threshold_sigma = float(events_cfg["detectability_threshold_sigma"])
 
+        # Start step bounds (Decision 18: scored window [480, 1919] inclusive)
+        self.start_step_min = int(events_cfg.get("start_step_min", self.warmup_steps))
+        self.start_step_max = int(events_cfg.get("start_step_max", self.total_steps - 1))
+        if self.start_step_min > self.start_step_max:
+            raise ValueError(f"start_step_min ({self.start_step_min}) > start_step_max ({self.start_step_max})")
+
     def sample_event_count(self, rng: np.random.Generator) -> int:
         """Sample event count from Poisson distribution capped at count_max."""
         raw_count = int(rng.poisson(lam=self.count_poisson_mean))
@@ -500,11 +506,56 @@ class EventGenerator:
 
     def sample_start_step(
         self,
-        total_steps: int,
-        rng: np.random.Generator,
+        rng: Optional[Union[int, np.random.Generator]] = None,
+        total_steps: Optional[Union[int, np.random.Generator]] = None,
+        start_min: Optional[int] = None,
+        start_max: Optional[int] = None,
     ) -> int:
-        """Sample event start step uniformly across scenario duration (Decision 18)."""
-        return int(rng.integers(0, total_steps))
+        """Sample event start step uniformly from configured inclusive range [start_step_min, start_step_max].
+        
+        Decision 18 (approved engineering choice):
+          Every genuine event's base start step is sampled uniformly from the inclusive range
+          [start_step_min, start_step_max] (default [480, 1919] within the scored window).
+          The warm-up period (steps 0 to 479) remains strictly free of genuine environmental events.
+          
+        Args:
+            rng: Numpy Generator (or total_steps integer if passed positionally first).
+            total_steps: Optional total scenario steps (or Generator if passed second).
+            start_min: Optional override for minimum start step.
+            start_max: Optional override for maximum start step.
+            
+        Returns:
+            Sampled integer start step.
+        """
+        # Support both (rng, total_steps) and (total_steps, rng)
+        if isinstance(rng, (int, np.integer)):
+            t_steps: Optional[int] = int(rng)
+            rng_gen = total_steps if isinstance(total_steps, np.random.Generator) else None
+        elif isinstance(rng, np.random.Generator):
+            rng_gen = rng
+            t_steps = int(total_steps) if isinstance(total_steps, (int, np.integer)) else None
+        else:
+            rng_gen = total_steps if isinstance(total_steps, np.random.Generator) else None
+            t_steps = None
+
+        if rng_gen is None:
+            raise ValueError("A numpy Generator must be passed to sample_start_step")
+
+        if t_steps is not None and t_steps < self.start_step_min:
+            s_min = 0 if start_min is None else int(start_min)
+            s_max = max(0, t_steps - 1) if start_max is None else int(start_max)
+        else:
+            s_min = self.start_step_min if start_min is None else int(start_min)
+            default_max = (
+                min(self.start_step_max, t_steps - 1)
+                if t_steps is not None
+                else self.start_step_max
+            )
+            s_max = default_max if start_max is None else int(start_max)
+
+        if s_min > s_max:
+            raise ValueError(f"start_step_min ({s_min}) > start_step_max ({s_max})")
+        return int(rng_gen.integers(s_min, s_max + 1))
 
     def generate_events(
         self,
@@ -568,7 +619,7 @@ class EventGenerator:
             )
             delays = self.sample_sensor_delays(affected_sensors=affected, rng=gen)
             durations = self.sample_durations(event_type=e_type, rng=gen)
-            start_step = self.sample_start_step(total_steps=t_steps, rng=gen)
+            start_step = self.sample_start_step(rng=gen, total_steps=t_steps)
             start_time_min = float(start_step * dt)
 
             # Determine end step

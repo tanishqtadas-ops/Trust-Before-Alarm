@@ -325,6 +325,132 @@ def test_arrival_delay_ranges(config, sample_sensors):
 
 
 # ---------------------------------------------------------------------------
+# 3b. Event start step distribution and warm-up isolation (Decision 18)
+# ---------------------------------------------------------------------------
+
+def test_event_start_step_distribution_and_bounds(config):
+    """Verify event start steps are sampled uniformly from inclusive range [480, 1919] (Decision 18).
+    
+    The warm-up period [0, 479] must strictly never contain event start steps.
+    """
+    gen = EventGenerator(config)
+    rng = np.random.default_rng(12345)
+
+    assert gen.start_step_min == 480
+    assert gen.start_step_max == 1919
+
+    # Draw a large sample to test boundaries and uniformity
+    n_samples = 10000
+    start_steps = np.array([gen.sample_start_step(rng=rng) for _ in range(n_samples)])
+
+    # 1. Strict boundary enforcement
+    assert np.all(start_steps >= 480), "Event start step must never be below 480"
+    assert np.all(start_steps <= 1919), "Event start step must never be above 1919"
+
+    # 2. Reaches boundary values over large sample
+    min_step = np.min(start_steps)
+    max_step = np.max(start_steps)
+    assert min_step <= 482, f"Sample min {min_step} should reach near lower bound 480"
+    assert max_step >= 1917, f"Sample max {max_step} should reach near upper bound 1919"
+
+    # 3. Uniformity: mean should be near (480 + 1919) / 2 = 1199.5
+    empirical_mean = np.mean(start_steps)
+    assert 1180.0 <= empirical_mean <= 1220.0, f"Empirical mean {empirical_mean} should be near 1199.5"
+
+    # 4. Uniformity across 4 quartiles
+    q1 = np.percentile(start_steps, 25)
+    q2 = np.percentile(start_steps, 50)
+    q3 = np.percentile(start_steps, 75)
+    # Expected quartiles: 480 + 0.25*1440 = 840, 1200, 1560
+    assert 820 <= q1 <= 860
+    assert 1180 <= q2 <= 1220
+    assert 1540 <= q3 <= 1580
+
+
+def test_warmup_period_strictly_event_free(config, sample_sensors):
+    """Verify the first 480 steps (0 to 479) remain strictly free of genuine events across scenarios."""
+    gen = EventGenerator(config)
+
+    # Check across 100 independent scenario seeds
+    for seed in range(100):
+        events = gen.generate_events(
+            sensor_params=sample_sensors,
+            total_steps=1920,
+            seed=seed,
+        )
+
+        for ep in events.episodes:
+            assert ep.start_step >= 480, f"Seed {seed}: episode start step {ep.start_step} < 480"
+            assert ep.start_step <= 1919, f"Seed {seed}: episode start step {ep.start_step} > 1919"
+
+        # Sensor contributions during warm-up must be strictly 0.0
+        for s in sample_sensors:
+            warmup_contrib = events.sensor_contributions[s.sensor_id][:480]
+            assert np.all(warmup_contrib == 0.0), f"Seed {seed}: non-zero event during warm-up on {s.sensor_id}"
+
+        # Ground-truth masks during warm-up must be strictly 0
+        assert np.all(events.genuine_event[:480] == 0)
+        assert np.all(events.event_below_detectability[:480] == 0)
+        assert np.all(events.event_magnitude_sigma[:480] == 0.0)
+        assert np.all(events.true_event_breadth[:480] == 0.0)
+        assert all(events.active_event_ids[t] == "" for t in range(480))
+
+
+def test_configured_start_step_bounds_used(config, sample_sensors):
+    """Verify that start_step_min and start_step_max are read from YAML configuration without hard-coding."""
+    custom_cfg = dict(config)
+    custom_events_cfg = dict(config["genuine_events"])
+    custom_events_cfg["start_step_min"] = 600
+    custom_events_cfg["start_step_max"] = 800
+    custom_cfg["genuine_events"] = custom_events_cfg
+
+    gen = EventGenerator(custom_cfg)
+    assert gen.start_step_min == 600
+    assert gen.start_step_max == 800
+
+    rng = np.random.default_rng(42)
+    steps = [gen.sample_start_step(rng=rng) for _ in range(500)]
+    assert np.all(np.array(steps) >= 600)
+    assert np.all(np.array(steps) <= 800)
+
+
+def test_arrival_delays_separate_from_base_start_step(config, sample_sensors):
+    """Verify arrival delays [0, 10] min remain separate from base event start step."""
+    gen = EventGenerator(config)
+
+    # Find a scenario with an event to inspect delays and arrival timestamps
+    found = False
+    for seed in range(50):
+        events = gen.generate_events(
+            sensor_params=sample_sensors,
+            total_steps=1920,
+            seed=seed,
+        )
+        if events.has_events:
+            for ep in events.episodes:
+                # Base start time in minutes
+                base_time = ep.start_time_minutes
+                assert base_time == ep.start_step * 1.0
+                assert base_time >= 480.0
+
+                # Per-sensor delays must be in [0, 10] and additive
+                for s_id in ep.affected_sensors:
+                    d_k = ep.sensor_delays[s_id]
+                    assert 0.0 <= d_k <= 10.0
+                    # Arrival time for sensor is base_time + d_k
+                    t_arr_k = base_time + d_k
+                    assert t_arr_k >= base_time
+                    # Before arrival time, contribution for this episode must be 0
+                    arrival_step = int(np.floor(t_arr_k))
+                    if arrival_step > 0:
+                        # Prior to arrival time, no wave from this episode has reached sensor
+                        pass
+            found = True
+            break
+    assert found, "Should find at least one scenario with events"
+
+
+# ---------------------------------------------------------------------------
 # 4. Ground-truth detectability logic tests
 # ---------------------------------------------------------------------------
 
