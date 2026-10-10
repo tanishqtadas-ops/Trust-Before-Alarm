@@ -12,7 +12,7 @@ structure:
   test_scenarios: 300                        # Appendix A.1: 300 test scenarios
   train_val_row_stride: 5                    # Appendix A.1: Row stride 5 for train/val
   test_full_resolution_count: 150            # Appendix A.1: full resolution for 150 test scenarios
-  test_stride_5_count: 150                   # Appendix A.1 / Decision 8: stride 5 for remaining 150 test scenarios
+  test_stride_5_count: 150                   # Appendix A.1 / Decision 11 (implementation choice): stride 5 for remaining 150 test scenarios
   sensors_per_group_min: 4                   # Appendix A.1: integer 4 to 8 (min)
   sensors_per_group_max: 8                   # Appendix A.1: integer 4 to 8 (max)
   single_sensor_count: 1                     # Appendix A.1: single-sensor count is exactly 1
@@ -22,7 +22,7 @@ structure:
     single_sensor: 0.08                      # Appendix A.1: 8% single-sensor
   two_groups_sensors_min: 4                  # Appendix A.1: two groups 4 to 6 sensors each (min)
   two_groups_sensors_max: 6                  # Appendix A.1: two groups 4 to 6 sensors each (max)
-  max_faulty_sensors_fraction: 0.4           # Appendix A.1 / Decision 5: upper bound cap max(1, floor(0.4 x n)), preserves 0-fault
+  max_faulty_sensors_fraction: 0.4           # Appendix A.1 / Decision 8 (implementation choice): upper bound cap max(1, floor(0.4 x n)), preserves 0-fault
   seeds:
     generator_a_start: 1                     # Appendix A.1: A: 1 to 1,500
     generator_a_end: 1500                    # Appendix A.1: A: 1 to 1,500
@@ -102,7 +102,7 @@ genuine_events:
     pulse_max: 30                            # Appendix A.3: pulse 5 to 30 min (max)
     sustained_rise_min: 5                    # Appendix A.3: sustained rise 5 to 20 min then hold (min)
     sustained_rise_max: 20                   # Appendix A.3: sustained rise 5 to 20 min then hold (max)
-    sustained_hold_until_scenario_end: true  # Decision 2: sustained hold lasts until scenario end
+    sustained_hold_until_scenario_end: true  # Decision 5 (implementation choice): sustained hold lasts until scenario end
   scope:
     global_prob: 0.55                        # Appendix A.3: global 55%
     global_attenuation_min: 0.6              # Appendix A.3: attenuation 0.6 to 1.0 (min)
@@ -123,7 +123,7 @@ genuine_events:
 
 faults:
   prob_present_from_start: 0.10              # Appendix A.4: 10% of fault episodes present from step 0
-  sensor_untrusted_rule: "active_interval"   # Decision 3: untrusted on active intervals (spike +4, degradation d>=0.15)
+  sensor_untrusted_rule: "active_interval"   # Decision 6 (implementation choice): untrusted on active intervals (spike +4, degradation d>=0.15)
   spike:
     episode_min: 30                          # Appendix A.4: episode 30 to 400 steps (min)
     episode_max: 400                         # Appendix A.4: episode 30 to 400 steps (max)
@@ -210,7 +210,7 @@ combinations:
   start_inside_active_event_prob: 0.35       # Appendix A.5: 35% of fault episodes start inside an active event
   shared_cause_pair_prob: 0.15               # Appendix A.5: Shared-cause pair in 15% of multi-fault scenarios
   shared_cause_start_offset_max: 10          # Appendix A.5: starts within +/-10 steps
-  shared_cause_severity_relative_tolerance: 0.20 # Decision 6: relative tolerance +/- 20% normalized severity
+  shared_cause_severity_relative_tolerance: 0.20 # Decision 9 (implementation choice): relative tolerance +/- 20% normalized severity
   allowed_pairs:                             # Appendix A.5: Allowed pairs
     - ["spike", "offset_drift"]
     - ["spike", "high_noise"]
@@ -251,12 +251,12 @@ difficulty_tiers:
     max_types_per_sensor: 2                  # Appendix A.6: up to 2 fault types each
   hard:
     prob: 0.30                               # Appendix A.6: HARD 30%
-    small_group_sensor_count: 4              # Decision 2: "small group" means exactly 4 sensors
-    no_clear_majority_cluster_max_fraction: 0.50 # Decision 3: no cluster contains > 50% of sensors (50/50 split qualifies)
+    small_group_sensor_count: 4              # Decision 2 (implementation choice): "small group" means exactly 4 sensors
+    no_clear_majority_cluster_max_fraction: 0.50 # Decision 3 (implementation choice): no cluster contains > 50% of sensors (50/50 split qualifies)
     sensor_near_bounds:
-      sigma_k_multiplier: 3.0                # Decision 4: within max(3 x sigma_k, 2.0 C) of boundary
-      fixed_margin_celsius: 2.0              # Decision 4: within max(3 x sigma_k, 2.0 C) of boundary
-      check_canonical_celsius: true          # Decision 4: check performed in canonical Celsius before unit scaling
+      sigma_k_multiplier: 3.0                # Decision 4 (implementation choice): within max(3 x sigma_k, 2.0 C) of boundary
+      fixed_margin_celsius: 2.0              # Decision 4 (implementation choice): within max(3 x sigma_k, 2.0 C) of boundary
+      check_canonical_celsius: true          # Decision 4 (implementation choice): check performed in canonical Celsius before unit scaling
     mechanisms:                              # Appendix A.6: Hard mechanisms (categorical only)
       - "local_event"
       - "fault_during_event"

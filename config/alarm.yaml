@@ -40,9 +40,9 @@ trust_engine:
     watch_min: 0.5                           # Appendix A.11: 0.5 to 0.8 WATCH (0.5 <= T <= 0.8)
     watch_max: 0.8                           # Appendix A.11: 0.5 to 0.8 WATCH (0.5 <= T <= 0.8)
     unreliable_max: 0.5                      # Appendix A.11: below 0.5 UNRELIABLE (T < 0.5)
-    healthy_rule: "T > 0.8"                  # Decision 4: HEALTHY when T > 0.8
-    watch_rule: "0.5 <= T <= 0.8"            # Decision 4: WATCH when 0.5 <= T <= 0.8
-    unreliable_rule: "T < 0.5"               # Decision 4: UNRELIABLE when T < 0.5
+    healthy_rule: "T > 0.8"                  # Decision 7 (implementation choice): HEALTHY when T > 0.8
+    watch_rule: "0.5 <= T <= 0.8"            # Decision 7 (implementation choice): WATCH when 0.5 <= T <= 0.8
+    unreliable_rule: "T < 0.5"               # Decision 7 (implementation choice): UNRELIABLE when T < 0.5
 
 demo_presets:
   warmup_healthy_steps: 480                  # Appendix A.13: Start with at least 480 steps of healthy history

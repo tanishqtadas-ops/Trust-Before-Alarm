@@ -61,6 +61,15 @@ def test_smoke_load_configs():
     assert gen_a["difficulty_tiers"]["hard"]["sensor_near_bounds"]["sigma_k_multiplier"] == 3.0
     assert gen_a["difficulty_tiers"]["hard"]["sensor_near_bounds"]["fixed_margin_celsius"] == 2.0
     assert gen_a["difficulty_tiers"]["hard"]["sensor_near_bounds"]["check_canonical_celsius"] is True
+    assert gen_a["temperature_profile"]["unit_scaling"]["affine_offset_min"] == -10.0
+    assert gen_a["temperature_profile"]["unit_scaling"]["affine_offset_max"] == 10.0
+    assert gen_a["temperature_profile"]["unit_scaling"]["affine_offset_distribution"] == "uniform"
+    assert gen_a["genuine_events"]["durations"]["sustained_hold_until_scenario_end"] is True
+    assert gen_a["faults"]["sensor_untrusted_rule"] == "active_interval"
+    assert gen_a["combinations"]["shared_cause_severity_relative_tolerance"] == 0.20
+    assert "subtle_fault" in gen_a["difficulty_tiers"]["hard"]["mechanisms"]
+    assert gen_a["structure"]["test_stride_5_count"] == 150
+    assert gen_a["structure"]["max_faulty_sensors_fraction"] == 0.4
 
     # Verify key sections from Features
     feats = configs["features"]
@@ -73,6 +82,9 @@ def test_smoke_load_configs():
     assert alarm["raw_alarm"]["baseline_window_hours"] == 8
     assert alarm["raw_alarm"]["threshold_multiplier"] == 3.0
     assert alarm["provable_rules"]["frozen"]["consecutive_identical_readings"] == 20
+    assert alarm["trust_engine"]["status_thresholds"]["healthy_rule"] == "T > 0.8"
+    assert alarm["trust_engine"]["status_thresholds"]["watch_rule"] == "0.5 <= T <= 0.8"
+    assert alarm["trust_engine"]["status_thresholds"]["unreliable_rule"] == "T < 0.5"
 
     # Verify key sections from Eval
     eval_cfg = configs["eval"]

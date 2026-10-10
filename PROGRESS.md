@@ -7,7 +7,7 @@
 ## CURRENT STATUS (update this block after every task)
 
 - **Current phase:** P0 (setup - complete, all specification & engineering decisions finalized and verified)
-- **Last completed task:** P0.4 (P0 specification finalized and locked)
+- **Last completed task:** P0.4 (P0 specification finalized, verified, and locked)
 - **Next task:** P1.1 (Generator A temperature profile)
 - **Blocked on / open questions:** none
 - **Last human-verified phase:** P0 (verified)
@@ -204,6 +204,7 @@ Build in this order; three screens only.
 
 Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issues`
 
+- 2026-10-10 | P0.4 | Finalized remaining P0 engineering choices (Decisions 1-11: random affine offset ENG assumption, small group n=4, no clear majority <=50%, sensor near bounds in canonical Celsius); synced configs, docs, tests | config/generator_a.yaml, config/alarm.yaml, docs/SPEC.md, docs/PARAMETERS_CHECK.md, PROGRESS.md, tests/test_smoke_configs.py | pytest tests/ passed (10/10), standalone smoke test passed, all parameters verified against Appendix A | none
 - 2026-10-10 | P0.4 | Implemented and executed smoke test loading all 4 YAML configs, verifying schema & keys, and printing parameters | tests/test_smoke_configs.py | pytest tests/ passed (10/10); python tests/test_smoke_configs.py exited 0 | none
 - 2026-10-10 | P0.3 | Created generator_a.yaml, features.yaml, alarm.yaml, eval.yaml with exact Appendix A values; wrote docs/SPEC.md and docs/PARAMETERS_CHECK.md | config/*.yaml, docs/SPEC.md, docs/PARAMETERS_CHECK.md | all config keys verified against Appendix A text in docs/PARAMETERS_CHECK.md | none
 - 2026-10-10 | P0.2 | Run stamp utility with run id, seed, config hash, UTC timestamp, save/load | src/utils/stamp.py, tests/test_stamp.py | pytest tests/test_stamp.py passed (4/4) | none
@@ -211,17 +212,17 @@ Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issu
 
 ## 8. DECISION LOG (changes to locked parameters or plan; user approval required)
 
-- 2026-10-10 | Decision (implementation choice): "No clear majority" operational definition locked as no cluster of valid sensor readings containing > 50% of sensors (50/50 split in an even-sized group qualifies).
-- 2026-10-10 | Decision (implementation choice): "Sensor near bounds" operational definition locked as pre-clipping reading within max(3 x sigma_k, 2.0 C) of corresponding clipping rail in canonical Celsius before unit scaling.
-- 2026-10-10 | Decision (implementation choice): "Small group" locked as exactly 4 sensors (n=4).
 - 2026-10-10 | Decision 1 (ENG assumption, not official PS parameter): Unit scaling random affine additive offset range set to Uniform [-10.0, 10.0] C.
-- 2026-10-10 | Decision 2 (implementation choice): Sustained environmental events hold until scenario end (step 1920) after specified rise (5 to 20 min).
-- 2026-10-10 | Decision 3 (implementation choice): Ground-truth sensor_untrusted defined by active fault-label intervals, including explicit spike window (samples + 4 steps) and slow degradation threshold (d >= 0.15).
-- 2026-10-10 | Decision 4 (implementation choice): Trust status exact boundaries locked as HEALTHY when T > 0.8, WATCH when 0.5 <= T <= 0.8, and UNRELIABLE when T < 0.5.
-- 2026-10-10 | Decision 5 (implementation choice): Max faulty sensors formula max(1, floor(0.4 * n)) acts as an upper bound cap on simultaneous faults that preserves the 15% zero-fault healthy scenarios.
-- 2026-10-10 | Decision 6 (implementation choice): Shared-cause similarity tolerance defined as relative difference <= 20% on normalized fault severity (|s1 - s2| / max(s1, s2) <= 0.20).
-- 2026-10-10 | Decision 7 (implementation choice): Subtle faults in HARD tier defined strictly from source ranges specified in Appendix A.4 (gain error g in [0.90, 0.95] or [1.05, 1.10]); no unapproved numerical thresholds added.
-- 2026-10-10 | Decision 8 (implementation choice): Row stride 5 used for remaining 150 test scenarios, with 150 test scenarios evaluated at full resolution (stride 1).
+- 2026-10-10 | Decision 2 (implementation choice): "Small group" operationalized as exactly 4 sensors (n=4).
+- 2026-10-10 | Decision 3 (implementation choice): "No clear majority" operational definition locked as no cluster of valid sensor readings containing > 50% of sensors (50/50 split in an even-sized group qualifies).
+- 2026-10-10 | Decision 4 (implementation choice): "Sensor near bounds" operational definition locked as pre-clipping environment or sensor reading within max(3 x sigma_k, 2.0 C) of corresponding clipping boundary (-5 C / 50 C environment, -10 C / 60 C sensor) in canonical Celsius before unit scaling.
+- 2026-10-10 | Decision 5 (implementation choice): Sustained environmental events hold at elevated level until scenario end (step 1920) after specified rise (5 to 20 min).
+- 2026-10-10 | Decision 6 (implementation choice): Ground-truth sensor_untrusted defined by active fault-label intervals, including explicit spike window (samples + 4 steps) and slow degradation threshold (d >= 0.15).
+- 2026-10-10 | Decision 7 (implementation choice): Trust status exact boundaries locked as HEALTHY when T > 0.8, WATCH when 0.5 <= T <= 0.8, and UNRELIABLE when T < 0.5.
+- 2026-10-10 | Decision 8 (implementation choice): Max faulty sensors formula max(1, floor(0.4 * n)) acts as an upper bound cap on simultaneous faults that preserves the 15% zero-fault healthy scenarios.
+- 2026-10-10 | Decision 9 (implementation choice): Shared-cause similarity tolerance defined as relative difference <= 20% on normalized fault severity (|s1 - s2| / max(s1, s2) <= 0.20).
+- 2026-10-10 | Decision 10 (implementation choice): Subtle faults in HARD tier defined strictly from source ranges specified in Appendix A.4 (gain error g in [0.90, 0.95] or [1.05, 1.10]); no unapproved numerical thresholds added.
+- 2026-10-10 | Decision 11 (implementation choice): Row stride 5 used for remaining 150 test scenarios, with 150 test scenarios evaluated at full resolution (stride 1).
 - 2026-10-10 | P0.4 implementation choice: Added key string-normalization in compute_config_hash to guarantee deterministic comparison for mixed int/str dictionary keys.
 - 2026-10-10 | P0.1 implementation choice: Used Python 3.11 for ML package compatibility; implemented config loader in src/utils/config.py with canonical JSON serialization for deterministic SHA-256 hash calculation.
 - 2026-10-10 | Generator B parameters (old A.12) removed from this file so the agent building Generator A cannot see them; Generator B moves to a separate SPEC_B.md for a different agent. P8 rewritten accordingly. Robust spread in A.9 defined explicitly.
