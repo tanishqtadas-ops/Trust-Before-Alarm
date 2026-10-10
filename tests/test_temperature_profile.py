@@ -281,6 +281,7 @@ def test_temperature_sensor_params_ranges():
 
     zero_lag_count = 0
     correlated_count = 0
+    zero_missing_count = 0
     valid_quant_steps = {0.01, 0.05, 0.1, 0.25}
 
     for s in all_sensors:
@@ -305,6 +306,12 @@ def test_temperature_sensor_params_ranges():
         else:
             assert s.noise_correlation_rho == 0.0
 
+        # Healthy missing data parameters (Decision 14 corrected)
+        assert 0.0 <= s.missing_rate <= 0.01
+        assert s.burst_max == 3
+        if s.missing_rate == 0.0:
+            zero_missing_count += 1
+
     # Zero lag fraction ~ 40% (+/- 3.5%)
     zero_lag_frac = zero_lag_count / n_sensors
     assert 0.365 <= zero_lag_frac <= 0.435, f"Zero lag fraction: {zero_lag_frac}"
@@ -312,6 +319,10 @@ def test_temperature_sensor_params_ranges():
     # Correlated fraction ~ 20% (+/- 3.5%)
     corr_frac = correlated_count / n_sensors
     assert 0.165 <= corr_frac <= 0.235, f"Correlated fraction: {corr_frac}"
+
+    # Zero missing fraction ~ 20% (+/- 3.5%)
+    zero_missing_frac = zero_missing_count / n_sensors
+    assert 0.165 <= zero_missing_frac <= 0.235, f"Zero missing fraction: {zero_missing_frac}"
 
 
 # ==============================================================================

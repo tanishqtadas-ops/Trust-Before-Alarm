@@ -36,7 +36,7 @@
 | `structure.healthy_missing_data.rate_min` | `0.0` | A.1 | "Healthy missing data: per-sensor rate 0 to 1%" |
 | `structure.healthy_missing_data.rate_max` | `0.01` | A.1 | "Healthy missing data: per-sensor rate 0 to 1%" |
 | `structure.healthy_missing_data.rate_distribution` | `"uniform"` | Decision 14 | "Approved engineering choice: remaining 80% sampled from Uniform[0, 0.01]" |
-| `structure.healthy_missing_data.zero_missing_sensor_fraction` | `0.20` | A.1 / Decision 14 | "20% of sensors 0 missing rate (approved engineering choice)" |
+| `structure.healthy_missing_data.zero_missing_sensor_fraction` | `0.20` | A.1 / Decision 14 | "Target population proportion 20% zero missing rate (independent Bernoulli trial per sensor; approved engineering choice & correction)" |
 | `structure.healthy_missing_data.burst_max` | `3` | A.1 | "bursts up to 3" |
 
 ### Temperature Profile (Appendix A.2)

@@ -372,18 +372,7 @@ class TemperatureProfile(VariableProfile):
 
         sensors: List[TemperatureSensorParams] = []
 
-        # Exactly 20% of virtual sensors have missing-data rate 0.0 (Decision 14)
-        if num_sensors == 1:
-            num_zero = 1 if float(gen.random()) < self.zero_missing_sensor_fraction else 0
-        else:
-            num_zero = int(np.round(num_sensors * self.zero_missing_sensor_fraction))
-
-        if num_zero > 0:
-            zero_indices = set(gen.choice(num_sensors, size=num_zero, replace=False))
-        else:
-            zero_indices = set()
-
-        for idx, s_id in enumerate(ids):
+        for s_id in ids:
             # Sensor noise sigma_k: log-uniform in [sigma_k_min, sigma_k_max]
             log_min = np.log(self.sigma_k_min)
             log_max = np.log(self.sigma_k_max)
@@ -410,8 +399,10 @@ class TemperatureProfile(VariableProfile):
             else:
                 rho = 0.0
 
-            # Healthy missing data rate (Decision 14)
-            if idx in zero_indices:
+            # Healthy missing data rate (Decision 14 corrected):
+            # Target population proportion 20% zero missing rate via independent Bernoulli trial
+            is_zero_missing = float(gen.random()) < self.zero_missing_sensor_fraction
+            if is_zero_missing:
                 missing_rate = 0.0
             else:
                 missing_rate = float(gen.uniform(self.missing_rate_min, self.missing_rate_max))

@@ -32,7 +32,7 @@ structure:
     rate_min: 0.0                            # Appendix A.1: per-sensor rate 0 to 1% (min)
     rate_max: 0.01                           # Appendix A.1: per-sensor rate 0 to 1% (max)
     rate_distribution: "uniform"             # Decision 14 (approved engineering choice): remaining 80% sampled from Uniform[rate_min, rate_max]
-    zero_missing_sensor_fraction: 0.20       # Appendix A.1 / Decision 14 (approved engineering choice): exactly 20% of sensors have 0 missing rate
+    zero_missing_sensor_fraction: 0.20       # Appendix A.1 / Decision 14 (approved engineering choice): target population proportion 20% zero missing rate (independent Bernoulli trial per sensor)
     burst_max: 3                             # Appendix A.1: bursts up to 3
 
 temperature_profile:

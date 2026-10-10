@@ -331,36 +331,40 @@ def test_sensor_quantisation_resolutions():
 # ==============================================================================
 
 def test_healthy_missing_data_zero_rate_sensor_assignment():
-    """Verify that exactly 20% of sensors receive a missing rate of zero (Decision 14)."""
+    """Verify independent Bernoulli assignment with population proportion ~20% (Decision 14 corrected).
+    
+    Each sensor independently receives missing_rate == 0.0 with probability 0.20.
+    In small groups (4-8 sensors), counts vary naturally. Across a sufficiently large sample,
+    the empirical proportion converges to 20%.
+    """
     profile = TemperatureProfile()
+
+    # 1. Deterministic assignment for identical seeds
+    batch_a1 = profile.sample_sensor_params(num_sensors=6, seed=777)
+    batch_a2 = profile.sample_sensor_params(num_sensors=6, seed=777)
+    rates_a1 = [s.missing_rate for s in batch_a1]
+    rates_a2 = [s.missing_rate for s in batch_a2]
+    assert rates_a1 == rates_a2
+
+    # 2. Population-level proportion across a sufficiently large, fixed-seed sample (5,000 sensors)
     rng = np.random.default_rng(999)
+    total_sensors = 5000
+    all_sensors = profile.sample_sensor_params(num_sensors=total_sensors, rng=rng)
 
-    # In a group of 5 sensors, exactly 1 sensor has missing_rate == 0.0 (20%)
-    batch_5 = profile.sample_sensor_params(num_sensors=5, rng=rng)
-    zero_rates_5 = [s.missing_rate for s in batch_5 if s.missing_rate == 0.0]
-    assert len(zero_rates_5) == 1, f"Expected exactly 1 zero-missing sensor in 5, got {len(zero_rates_5)}"
+    zero_count = sum(1 for s in all_sensors if s.missing_rate == 0.0)
+    zero_fraction = zero_count / total_sensors
 
-    # In a group of 10 sensors, exactly 2 sensors have missing_rate == 0.0 (20%)
-    batch_10 = profile.sample_sensor_params(num_sensors=10, rng=rng)
-    zero_rates_10 = [s.missing_rate for s in batch_10 if s.missing_rate == 0.0]
-    assert len(zero_rates_10) == 2, f"Expected exactly 2 zero-missing sensors in 10, got {len(zero_rates_10)}"
+    # Expected 0.20, SE = sqrt(0.20 * 0.80 / 5000) ~ 0.00565; 3.5-sigma window is [0.18, 0.22]
+    assert 0.18 <= zero_fraction <= 0.22, f"Empirical zero-missing fraction {zero_fraction} outside [0.18, 0.22]"
 
-    # In a group of 20 sensors, exactly 4 sensors have missing_rate == 0.0 (20%)
-    batch_20 = profile.sample_sensor_params(num_sensors=20, rng=rng)
-    zero_rates_20 = [s.missing_rate for s in batch_20 if s.missing_rate == 0.0]
-    assert len(zero_rates_20) == 4, f"Expected exactly 4 zero-missing sensors in 20, got {len(zero_rates_20)}"
-
-    # Over 100 groups of 5 sensors (500 sensors total):
-    # exactly 100 sensors have missing_rate == 0.0 (20.0%)
-    total_sensors = 0
-    total_zero = 0
-    for _ in range(100):
-        sensors = profile.sample_sensor_params(num_sensors=5, rng=rng)
-        total_sensors += len(sensors)
-        total_zero += sum(1 for s in sensors if s.missing_rate == 0.0)
-
-    assert total_zero == 100
-    assert total_zero / total_sensors == 0.20
+    # 3. Across realistic group sizes (4 to 8 sensors), verify counts are not artificially locked
+    group_sizes = [4, 5, 6, 7, 8]
+    group_zero_counts = set()
+    for n in group_sizes:
+        batch = profile.sample_sensor_params(num_sensors=n, rng=rng)
+        group_zero_counts.add(sum(1 for s in batch if s.missing_rate == 0.0))
+    # Confirms variability across independent trials (not a single rigid integer)
+    assert len(group_zero_counts) > 1
 
 
 def test_healthy_missing_data_rates_distribution():
@@ -368,18 +372,18 @@ def test_healthy_missing_data_rates_distribution():
     profile = TemperatureProfile()
     rng = np.random.default_rng(555)
 
-    batch = profile.sample_sensor_params(num_sensors=100, rng=rng)
+    batch = profile.sample_sensor_params(num_sensors=2000, rng=rng)
     non_zero_rates = [s.missing_rate for s in batch if s.missing_rate > 0.0]
 
-    # Exactly 80 sensors have non-zero missing rate
-    assert len(non_zero_rates) == 80
+    # Non-zero rate count ~ 80% of 2000 = 1600 (+/- 70)
+    assert 1500 <= len(non_zero_rates) <= 1700
 
     for r in non_zero_rates:
         assert 0.0 < r <= 0.01
 
     # Mean of Uniform[0, 0.01] is 0.005
     mean_r = float(np.mean(non_zero_rates))
-    assert 0.0035 <= mean_r <= 0.0065
+    assert 0.0045 <= mean_r <= 0.0055
 
 
 def test_missing_data_burst_max_length():
