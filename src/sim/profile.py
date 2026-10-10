@@ -57,6 +57,8 @@ class TemperatureSensorParams:
     quantisation_step: float
     is_noise_correlated: bool
     noise_correlation_rho: float
+    missing_rate: float = 0.0
+    burst_max: int = 3
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize sensor parameters to a dictionary."""
@@ -122,10 +124,13 @@ class TemperatureProfile(VariableProfile):
         if config is None:
             default_yaml = get_config_dir() / "generator_a.yaml"
             raw_cfg = load_yaml(default_yaml)
+            self.full_config = raw_cfg
             cfg = raw_cfg["temperature_profile"]
         elif "temperature_profile" in config:
+            self.full_config = config
             cfg = config["temperature_profile"]
         else:
+            self.full_config = None
             cfg = config
 
         super().__init__(variable_type="temperature", config=cfg)
@@ -218,6 +223,50 @@ class TemperatureProfile(VariableProfile):
 
         # Unit scaling
         self.unit_scaling_config = dict(cfg["unit_scaling"])
+
+        # Healthy missing data (Appendix A.1 & Decision 14)
+        missing_cfg = None
+        if "healthy_missing_data" in cfg:
+            missing_cfg = cfg["healthy_missing_data"]
+        elif (
+            hasattr(self, "full_config")
+            and self.full_config
+            and "structure" in self.full_config
+            and "healthy_missing_data" in self.full_config["structure"]
+        ):
+            missing_cfg = self.full_config["structure"]["healthy_missing_data"]
+        else:
+            default_yaml = get_config_dir() / "generator_a.yaml"
+            if default_yaml.exists():
+                raw_cfg = load_yaml(default_yaml)
+                if "structure" in raw_cfg and "healthy_missing_data" in raw_cfg["structure"]:
+                    missing_cfg = raw_cfg["structure"]["healthy_missing_data"]
+
+        if missing_cfg is None:
+            raise KeyError(
+                "Configuration must specify 'healthy_missing_data' block (under structure or temperature_profile)"
+            )
+
+        self.missing_rate_min = float(missing_cfg["rate_min"])
+        self.missing_rate_max = float(missing_cfg["rate_max"])
+        self.zero_missing_sensor_fraction = float(missing_cfg["zero_missing_sensor_fraction"])
+        self.burst_max = int(missing_cfg["burst_max"])
+        self.missing_rate_distribution = str(missing_cfg.get("rate_distribution", "uniform"))
+
+        if self.missing_rate_min < 0.0 or self.missing_rate_max < 0.0:
+            raise ValueError(
+                f"Missing rates must be non-negative, got min={self.missing_rate_min}, max={self.missing_rate_max}"
+            )
+        if self.missing_rate_min > self.missing_rate_max:
+            raise ValueError(
+                f"missing_rate_min ({self.missing_rate_min}) > missing_rate_max ({self.missing_rate_max})"
+            )
+        if not (0.0 <= self.zero_missing_sensor_fraction <= 1.0):
+            raise ValueError(
+                f"zero_missing_sensor_fraction must be in [0, 1], got {self.zero_missing_sensor_fraction}"
+            )
+        if self.burst_max < 1:
+            raise ValueError(f"burst_max must be >= 1, got {self.burst_max}")
 
     @staticmethod
     def _resolve_rng(
@@ -322,7 +371,19 @@ class TemperatureProfile(VariableProfile):
             ids = [f"sensor_{i:02d}" for i in range(num_sensors)]
 
         sensors: List[TemperatureSensorParams] = []
-        for s_id in ids:
+
+        # Exactly 20% of virtual sensors have missing-data rate 0.0 (Decision 14)
+        if num_sensors == 1:
+            num_zero = 1 if float(gen.random()) < self.zero_missing_sensor_fraction else 0
+        else:
+            num_zero = int(np.round(num_sensors * self.zero_missing_sensor_fraction))
+
+        if num_zero > 0:
+            zero_indices = set(gen.choice(num_sensors, size=num_zero, replace=False))
+        else:
+            zero_indices = set()
+
+        for idx, s_id in enumerate(ids):
             # Sensor noise sigma_k: log-uniform in [sigma_k_min, sigma_k_max]
             log_min = np.log(self.sigma_k_min)
             log_max = np.log(self.sigma_k_max)
@@ -349,6 +410,12 @@ class TemperatureProfile(VariableProfile):
             else:
                 rho = 0.0
 
+            # Healthy missing data rate (Decision 14)
+            if idx in zero_indices:
+                missing_rate = 0.0
+            else:
+                missing_rate = float(gen.uniform(self.missing_rate_min, self.missing_rate_max))
+
             sensors.append(
                 TemperatureSensorParams(
                     sensor_id=s_id,
@@ -358,6 +425,8 @@ class TemperatureProfile(VariableProfile):
                     quantisation_step=quantisation_step,
                     is_noise_correlated=is_correlated,
                     noise_correlation_rho=rho,
+                    missing_rate=missing_rate,
+                    burst_max=self.burst_max,
                 )
             )
 

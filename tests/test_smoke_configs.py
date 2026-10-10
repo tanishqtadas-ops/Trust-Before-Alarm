@@ -73,6 +73,11 @@ def test_smoke_load_configs():
     assert "subtle_fault" in gen_a["difficulty_tiers"]["hard"]["mechanisms"]
     assert gen_a["structure"]["test_stride_5_count"] == 150
     assert gen_a["structure"]["max_faulty_sensors_fraction"] == 0.4
+    assert gen_a["structure"]["healthy_missing_data"]["rate_min"] == 0.0
+    assert gen_a["structure"]["healthy_missing_data"]["rate_max"] == 0.01
+    assert gen_a["structure"]["healthy_missing_data"]["rate_distribution"] == "uniform"
+    assert gen_a["structure"]["healthy_missing_data"]["zero_missing_sensor_fraction"] == 0.20
+    assert gen_a["structure"]["healthy_missing_data"]["burst_max"] == 3
 
     # Verify key sections from Features
     feats = configs["features"]

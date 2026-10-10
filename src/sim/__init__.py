@@ -15,6 +15,17 @@ from src.sim.profile import (
     TemperatureSensorParams,
     VariableProfile,
 )
+from src.sim.sensors import (
+    SensorStream,
+    VirtualSensorGroup,
+    VirtualSensorSimulator,
+    apply_clipping,
+    apply_quantisation,
+    apply_response_lag,
+    generate_group_noise,
+    generate_missing_mask,
+    simulate_sensors,
+)
 from src.sim.units import UnitScaler, sample_unit_scaler
 
 __all__ = [
@@ -27,4 +38,13 @@ __all__ = [
     "EnvironmentSeries",
     "EnvironmentSimulator",
     "generate_environment_series",
+    "SensorStream",
+    "VirtualSensorGroup",
+    "VirtualSensorSimulator",
+    "simulate_sensors",
+    "apply_response_lag",
+    "generate_group_noise",
+    "apply_clipping",
+    "apply_quantisation",
+    "generate_missing_mask",
 ]

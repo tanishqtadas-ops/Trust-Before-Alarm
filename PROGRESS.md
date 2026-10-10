@@ -7,8 +7,8 @@
 ## CURRENT STATUS (update this block after every task)
 
 - **Current phase:** P1 (Generator A, batch mode)
-- **Last completed task:** P1.2 (True environment: daily cycle, slow random wander, bounds)
-- **Next task:** P1.3 (Virtual sensors: offset, noise, response lag, quantisation, clipping, healthy missing data)
+- **Last completed task:** P1.3 (Virtual sensors: offset, noise, response lag, quantisation, clipping, healthy missing data)
+- **Next task:** P1.4 (Genuine events: step/ramp/pulse/sustained, scope, attenuation, arrival delay, detectability labels)
 - **Blocked on / open questions:** none
 - **Last human-verified phase:** P0 (verified)
 
@@ -109,7 +109,7 @@ Dates are our targets (official: Round 2 online 15 to 18 Oct, finale 24 Oct 2026
 ### P1. Generator A, batch mode (11 to 13 Oct)
 - [x] P1.1 [M] Temperature variable profile (Appendix A.2), driven by config; unit scaling applied last.
 - [x] P1.2 [M] True environment: daily cycle, slow random wander, bounds.
-- [ ] P1.3 [M] Virtual sensors: offset, noise (with optional correlation), response lag, quantisation, clipping, healthy missing data.
+- [x] P1.3 [M] Virtual sensors: offset, noise (with optional correlation), response lag, quantisation, clipping, healthy missing data.
 - [ ] P1.4 [M] Genuine events: step/ramp/pulse/sustained, scope (global/partial/local), attenuation, arrival delay, detectability labels.
 - [ ] P1.5 [M] Seven fault injectors (A.4) with start/duration/severity sampling, "from the start" faults.
 - [ ] P1.6 [M] Combination rules, shared-cause pairs, faulty-fraction cap (A.5).
@@ -204,6 +204,7 @@ Build in this order; three screens only.
 
 Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issues`
 
+- 2026-10-10 | P1.3 | Implemented virtual sensor models (first-order response lag tau in [0, 6] min, static offset in [-1, 1] C, Gaussian measurement noise sigma_k in [0.05, 0.30] C with 1-factor mild correlation model rho in [0.2, 0.5], sensor clipping [-10, 60] C, quantisation in {0.01, 0.05, 0.1, 0.25} C, healthy missing data with 20% zero-rate assignment, bursts <= 3 as NaN, unit scaling applied last) | src/sim/sensors.py, src/sim/profile.py, src/sim/__init__.py, config/generator_a.yaml, tests/test_sensors.py, tests/test_smoke_configs.py, docs/SPEC.md, docs/PARAMETERS_CHECK.md, PROGRESS.md | pytest tests/ passed (56/56); smoke test verified; determinism, exact 20% zero-missing rate, max burst 3, and data layer isolation verified | none
 - 2026-10-10 | P1.2 | Implemented true environmental temperature series in canonical Celsius (base level, daily cycle, slow random wander via stationary OU AR(1) with 5-step MA, bounds clipping [-5, 50] C) | src/sim/environment.py, src/sim/__init__.py, tests/test_environment.py, PROGRESS.md | pytest tests/ passed (38/38); verified 1,920 steps (480 warmup, 1,440 scored), determinism, daily cycle periodicity, AR(1) stationary variance, bounds [-5, 50] C | none
 - 2026-10-10 | P1.1 | Corrected parameter fidelity: removed period fallback (made explicit in config), added configured daily-cycle phase bounds [0, 2pi) rad (Decision 12), made unit scaling probabilities strictly config-driven | config/generator_a.yaml, src/sim/profile.py, src/sim/units.py, tests/test_smoke_configs.py, tests/test_temperature_profile.py, docs/SPEC.md, docs/PARAMETERS_CHECK.md | pytest tests/ passed (27/27); verified configured period and phase interval strictly respected without fallbacks | none
 - 2026-10-10 | P1.1 | Implemented temperature variable profile and unit scaling (Celsius, Fahrenheit, random affine) driven by config/generator_a.yaml, ensuring unit scaling applied last | src/sim/units.py, src/sim/profile.py, src/sim/__init__.py, tests/test_temperature_profile.py | pytest tests/ passed (25/25); verified determinism, Appendix A.2 parameter ranges, probability distributions, affine inversion, and ground truth isolation | none
@@ -229,6 +230,10 @@ Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issu
 - 2026-10-10 | Decision 11 (implementation choice): Row stride 5 used for remaining 150 test scenarios, with 150 test scenarios evaluated at full resolution (stride 1).
 - 2026-10-10 | Decision 12 (implementation choice): Daily-cycle random phase interval explicitly configured as [0.0, 6.283185307179586] radians ([0, 2pi)) in generator_a.yaml (operationalizing "random phase" in Appendix A.2) and period_minutes required explicitly without hard-coded fallbacks.
 - 2026-10-10 | Decision 13 (implementation choice): Slow random wander generated via discrete Ornstein-Uhlenbeck AR(1) process with decay factor alpha = exp(-dt/tau) and innovation std = sigma * sqrt(1 - alpha^2), initialized in stationary distribution with (M-1) warm-up steps so the 5-step causal moving average is fully defined from step 0.
+- 2026-10-10 | Decision 14 (approved engineering choice, user approved): Exactly 20% of virtual sensors have a missing-data rate of zero. For the remaining 80%, each sensor's missing-data rate is sampled independently from Uniform[0.0, 0.01] (0%–1%) and kept fixed for that sensor for the scenario. Missing bursts may last up to the configured maximum of 3 consecutive readings. Missing readings are represented consistently as NaN (never substituted with zero). Recorded in config/generator_a.yaml under structure.healthy_missing_data.
+- 2026-10-10 | Decision 15 (implementation choice): Target missing readings M = round(r * T) are partitioned into burst lengths L ~ DiscreteUniform[1, burst_max] (burst_max=3) and placed at non-adjacent starting positions (buffered by at least 1 valid reading). This guarantees that bursts never merge and consecutive missing readings strictly never exceed 3.
+- 2026-10-10 | Decision 16 (implementation choice): For the 20% of sensors designated as correlated in a group, Gaussian measurement noise is generated via a 1-factor model eta_{k, t} = sigma_k * (sqrt(rho_k) * xi_t + sqrt(1 - rho_k) * z_{k, t}) where xi_t ~ N(0, 1) is group-shared noise and z_{k, t} ~ N(0, 1) is idiosyncratic noise. This strictly preserves each sensor's marginal variance sigma_k^2 and produces pairwise correlation sqrt(rho_j * rho_k) in [0.2, 0.5] without requiring external covariance solvers.
+- 2026-10-10 | Decision 17 (implementation choice): Discretized continuous-time physical lag tau * dy/dt + y = u with time step dt = 1.0 min via exponential smoothing parameter beta = exp(-dt / tau) for tau > 0 (beta = 0 for tau = 0), initialized in thermal equilibrium y[0] = u[0] to eliminate artificial startup transient at step 0.
 - 2026-10-10 | P0.4 implementation choice: Added key string-normalization in compute_config_hash to guarantee deterministic comparison for mixed int/str dictionary keys.
 - 2026-10-10 | P0.1 implementation choice: Used Python 3.11 for ML package compatibility; implemented config loader in src/utils/config.py with canonical JSON serialization for deterministic SHA-256 hash calculation.
 - 2026-10-10 | Generator B parameters (old A.12) removed from this file so the agent building Generator A cannot see them; Generator B moves to a separate SPEC_B.md for a different agent. P8 rewritten accordingly. Robust spread in A.9 defined explicitly.
