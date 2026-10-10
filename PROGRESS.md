@@ -6,9 +6,9 @@
 
 ## CURRENT STATUS (update this block after every task)
 
-- **Current phase:** P0 (setup - complete, all specification & engineering decisions finalized and verified)
-- **Last completed task:** P0.4 (P0 specification finalized, verified, and locked)
-- **Next task:** P1.1 (Generator A temperature profile)
+- **Current phase:** P1 (Generator A, batch mode)
+- **Last completed task:** P1.1 (Temperature variable profile driven by config, unit scaling applied last)
+- **Next task:** P1.2 (True environment: daily cycle, slow random wander, bounds)
 - **Blocked on / open questions:** none
 - **Last human-verified phase:** P0 (verified)
 
@@ -107,7 +107,7 @@ Dates are our targets (official: Round 2 online 15 to 18 Oct, finale 24 Oct 2026
 **Done when:** configs load, tests run, user confirms the parameters match Appendix A.
 
 ### P1. Generator A, batch mode (11 to 13 Oct)
-- [ ] P1.1 [M] Temperature variable profile (Appendix A.2), driven by config; unit scaling applied last.
+- [x] P1.1 [M] Temperature variable profile (Appendix A.2), driven by config; unit scaling applied last.
 - [ ] P1.2 [M] True environment: daily cycle, slow random wander, bounds.
 - [ ] P1.3 [M] Virtual sensors: offset, noise (with optional correlation), response lag, quantisation, clipping, healthy missing data.
 - [ ] P1.4 [M] Genuine events: step/ramp/pulse/sustained, scope (global/partial/local), attenuation, arrival delay, detectability labels.
@@ -203,6 +203,8 @@ Build in this order; three screens only.
 ## 7. LOG (newest first; one short entry per task)
 
 Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issues`
+
+- 2026-10-10 | P1.1 | Implemented temperature variable profile and unit scaling (Celsius, Fahrenheit, random affine) driven by config/generator_a.yaml, ensuring unit scaling applied last | src/sim/units.py, src/sim/profile.py, src/sim/__init__.py, tests/test_temperature_profile.py | pytest tests/ passed (25/25); verified determinism, Appendix A.2 parameter ranges, probability distributions, affine inversion, and ground truth isolation | none
 
 - 2026-10-10 | P0.4 | Finalized remaining P0 engineering choices (Decisions 1-11: random affine offset ENG assumption, small group n=4, no clear majority <=50%, sensor near bounds in canonical Celsius); synced configs, docs, tests | config/generator_a.yaml, config/alarm.yaml, docs/SPEC.md, docs/PARAMETERS_CHECK.md, PROGRESS.md, tests/test_smoke_configs.py | pytest tests/ passed (10/10), standalone smoke test passed, all parameters verified against Appendix A | none
 - 2026-10-10 | P0.4 | Implemented and executed smoke test loading all 4 YAML configs, verifying schema & keys, and printing parameters | tests/test_smoke_configs.py | pytest tests/ passed (10/10); python tests/test_smoke_configs.py exited 0 | none
