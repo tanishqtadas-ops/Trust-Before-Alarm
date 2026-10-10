@@ -1,0 +1,41 @@
+# Evaluation Settings and Pass Marks Configuration
+# All numbers locked exactly from Appendix A.14 and Appendix C.
+
+evaluation_settings:
+  false_alarm_budget_per_sensor_day: 0.5     # Appendix A.14: Budget: at most 0.5 episodes per healthy sensor per day
+  false_alarm_merge_gap: 5                   # Appendix A.14: a run of flagged readings (merge gap 5)
+  healthy_grace_window_steps: 5              # Appendix A.14: with no fault active (5-reading grace)
+  onset_grace_window_steps: 5                # Appendix A.14: Onset grace window 5 steps
+  detection_delay_probability_cutoff: 0.5    # Appendix A.14: detection delay = first step with calibrated p >= 0.5
+  wilson_confidence_level: 0.95              # Appendix A.14: Wilson 95% intervals on rates
+  bootstrap_resamples: 1000                  # Appendix A.14: 1,000 scenario-level bootstrap resamples
+  thin_cell_min_samples: 20                  # Appendix A.14: flag cells with n < 20
+  worst_slice_min_samples: 25                # Appendix A.14: worst-slice search with at least 25 examples
+
+leakage_audit:
+  single_feature_auc_threshold: 0.85         # Appendix A.14: single-feature AUC above 0.85 is investigated
+  shuffle_seeds: [20001, 20002, 20003, 20004, 20005] # Appendix A.14: 5 shuffles, seeds 20001 to 20005
+  shuffle_auc_target: 0.50                   # Appendix A.14: AUC within 0.50 +/- 0.03
+  shuffle_auc_tolerance: 0.03                # Appendix A.14: AUC within 0.50 +/- 0.03
+  shuffle_recall_at_budget_max: 0.05         # Appendix A.14: recall at budget at most 0.05
+  canary_auc_min: 0.95                       # Appendix A.14: a planted canary column must be caught (AUC >= 0.95)
+
+performance_limits:
+  max_latency_ms_per_reading: 50.0           # Appendix A.14: at most 50 ms per sensor reading on laptop CPU
+  max_model_file_size_mb: 50.0               # Appendix A.14: model files at most 50 MB
+
+pass_marks:
+  false_alarm_budget: 0.5                    # Appendix C: At the false-alarm budget of 0.5 per healthy sensor per day
+  pm1_hard_beat_baseline_points: 10.0        # Appendix C: beats baseline by at least 10 points on HARD
+  pm1_medium_beat_baseline_points: 5.0       # Appendix C: 5 on MEDIUM
+  pm2_provable_rules_recall_min: 0.90        # Appendix C: recall at least 0.90 for rule-provable faults
+  pm2_other_faults_recall_min: 0.60          # Appendix C: at least 0.60 for every other fault type
+  pm2_min_examples: 20                       # Appendix C: fault types with 20+ examples
+  pm3_fault_only_suppression_min: 0.70       # Appendix C: at least 70% of fault-only raw alarms suppressed
+  pm4_event_only_wrong_suppression_max: 0.05 # Appendix C: at most 5% of event-only raw alarms wrongly suppressed
+  pm5_both_flags_correct_min: 0.60           # Appendix C: in BOTH cases, at least 60% get both flags right
+  pm6_a_to_b_recall_drop_max: 0.20           # Appendix C: recall drops by at most 20 points from Generator A to B
+  pm7_calibration_error_max: 0.05            # Appendix C: calibration error at most 0.05
+  pm8_rank_correlation_trust_health_min: 0.75 # Appendix C: rank correlation at least 0.75
+  pm9_median_detection_delay_max_steps: 15   # Appendix C: median detection delay at most 15 readings
+  pm9_fault_size_min_sigma: 5.0              # Appendix C: for faults above 5 sigma

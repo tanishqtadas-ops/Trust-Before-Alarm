@@ -7,8 +7,8 @@
 ## CURRENT STATUS (update this block after every task)
 
 - **Current phase:** P0 (setup)
-- **Last completed task:** P0.2
-- **Next task:** P0.3
+- **Last completed task:** P0.3
+- **Next task:** P0.4
 - **Blocked on / open questions:** none
 - **Last human-verified phase:** none
 
@@ -102,7 +102,7 @@ Dates are our targets (official: Round 2 online 15 to 18 Oct, finale 24 Oct 2026
 ### P0. Setup and spec lock (10 to 11 Oct)
 - [x] P0.1 [M] Create repo layout, Python environment, `requirements.txt` (pandas, numpy, scipy, scikit-learn, lightgbm, pyarrow, pyyaml, pytest, matplotlib), config loader.
 - [x] P0.2 [M] Run stamp utility: every run gets run id, seed, config hash, timestamp, written next to outputs.
-- [ ] P0.3 [M] Put Appendix A into `config/*.yaml` exactly (no hard-coded numbers elsewhere); write `docs/SPEC.md` from this file for the record.
+- [x] P0.3 [M] Put Appendix A into `config/*.yaml` exactly (no hard-coded numbers elsewhere); write `docs/SPEC.md` from this file for the record.
 - [ ] P0.4 [M] Smoke test that loads configs and prints the parameters.
 **Done when:** configs load, tests run, user confirms the parameters match Appendix A.
 
@@ -204,6 +204,7 @@ Build in this order; three screens only.
 
 Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issues`
 
+- 2026-10-10 | P0.3 | Created generator_a.yaml, features.yaml, alarm.yaml, eval.yaml with exact Appendix A values; wrote docs/SPEC.md and docs/PARAMETERS_CHECK.md | config/*.yaml, docs/SPEC.md, docs/PARAMETERS_CHECK.md | all config keys verified against Appendix A text in docs/PARAMETERS_CHECK.md | none
 - 2026-10-10 | P0.2 | Run stamp utility with run id, seed, config hash, UTC timestamp, save/load | src/utils/stamp.py, tests/test_stamp.py | pytest tests/test_stamp.py passed (4/4) | none
 - 2026-10-10 | P0.1 | Created repo layout, Python 3.11 virtual environment, requirements.txt, config loader with SHA-256 hash | requirements.txt, .gitignore, README.md, src/**, tests/test_config.py, src/utils/config.py | pytest tests/test_config.py passed (5/5) | none
 

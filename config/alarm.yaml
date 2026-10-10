@@ -1,0 +1,51 @@
+# Raw Alarm, Trust Engine, and Alarm Layer Configuration
+# All numbers locked exactly from Appendix A.9, A.10, A.11, and A.13.
+
+raw_alarm:
+  baseline_window_hours: 8                   # Appendix A.9: 8-hour median
+  baseline_window_minutes: 480               # Appendix A.9: 8-hour median (480 minutes)
+  robust_spread_mad_factor: 1.4826           # Appendix A.9: robust spread = 1.4826 x MAD of readings themselves
+  threshold_multiplier: 3.0                  # Appendix A.9: +/- 3 x the sensor's own robust spread
+  persistence_start_readings: 1              # Appendix A.9: starts at 1 reading outside the band
+  consecutive_inside_to_end: 10              # Appendix A.9: ends after 10 consecutive readings inside
+  episode_merge_gap_max: 5                   # Appendix A.9: episodes merge when gaps are 5 readings or fewer
+  cause_label_sigma_multiplier: 3.0          # Appendix A.9: using the 3 x sigma_k rule on event and fault contributions
+
+decision:
+  evaluation_initial_readings: 5             # Appendix A.9: average calibrated probabilities over first 5 readings
+  recheck_interval_readings: 5               # Appendix A.9: re-check every 5
+  default_probability_cutoff: 0.5            # Appendix A.9: Probability cutoffs start at 0.5
+
+provable_rules:
+  frozen:
+    consecutive_identical_readings: 20       # Appendix A.10: 20 identical consecutive readings
+    run_multiplier: 3.0                      # Appendix A.10: AND more than 3 x the longest identical run
+    history_reference_steps: 480             # Appendix A.10: in that sensor's previous 480 readings
+  dropout:
+    consecutive_missing_threshold: 5         # Appendix A.10: 5 or more consecutive missing
+    window_missing_fraction: 0.20            # Appendix A.10: OR 20% or more missing in the last 30
+    window_missing_steps: 30                 # Appendix A.10: in the last 30
+
+calibration:
+  isotonic_min_positive_count: 500           # Appendix A.11: isotonic when a fault type has 500 or more positives
+  n_folds: 5                                 # Appendix A.11: 5 folds grouped by scenario
+
+trust_engine:
+  alpha_falling: 0.5                         # Appendix A.11: smoothing alpha 0.5 when falling
+  alpha_recovering: 0.05                     # Appendix A.11: 0.05 when recovering
+  candidate_alphas_falling: [0.3, 0.5, 0.7]   # Appendix A.11: choose on validation from {0.3, 0.5, 0.7}
+  candidate_alphas_recovering: [0.02, 0.05, 0.1] # Appendix A.11: x {0.02, 0.05, 0.1}
+  status_thresholds:
+    healthy_min: 0.8                         # Appendix A.11: above 0.8 HEALTHY
+    watch_min: 0.5                           # Appendix A.11: 0.5 to 0.8 WATCH
+    watch_max: 0.8                           # Appendix A.11: 0.5 to 0.8 WATCH
+    unreliable_max: 0.5                      # Appendix A.11: below 0.5 UNRELIABLE
+
+demo_presets:
+  warmup_healthy_steps: 480                  # Appendix A.13: Start with at least 480 steps of healthy history
+  chart_window_steps: 240                    # Appendix A.13: chart shows the last 240 readings
+  playback_seconds_per_minute: 1.0           # Appendix A.13: Playback 1 second per simulated minute
+  playback_speed_max: 10.0                   # Appendix A.13: adjustable up to 10x
+  preset_spike_sigma: 20.0                   # Appendix A.13: Spike about 20 x sigma_k
+  preset_drift_sigma: 10.0                   # Appendix A.13: Drift reaches about 10 x sigma_k
+  preset_event_magnitude: 5.0                # Appendix A.13: Event magnitude about 5 C

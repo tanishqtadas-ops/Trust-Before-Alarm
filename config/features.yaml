@@ -1,0 +1,33 @@
+# Feature Engine Configuration
+# All numbers locked exactly from Appendix A.8, A.3, and Appendix B.
+
+sigma_hat:
+  mad_scale_factor: 1.4826                   # Appendix A.8: 1.4826 x MAD of first differences
+  sqrt_2_divisor: 1.4142135623730951         # Appendix A.8: divided by sqrt(2)
+  rolling_percentile: 25.0                   # Appendix A.8: 25th percentile of rolling estimates
+  reference_window: 480                      # Appendix A.8: over the 480-step reference
+
+windows:
+  short: 5                                   # Appendix A.8: short 5 readings
+  medium: 30                                 # Appendix A.8: medium 30 readings
+  long: 120                                  # Appendix A.8: long 120 readings
+  reference: 480                             # Appendix A.8: reference 480 readings
+  causal_only: true                          # Appendix A.8: Causal only
+
+gap_centring:
+  reference_window: 480                      # Appendix A.8: sensor's own median gap over the 480-step reference
+
+sensor_changing_rule:
+  valid_readings_median_count: 3             # Appendix A.3: median of last 3 valid readings
+  short_lag_steps: 15                        # Appendix A.3: ending 15 steps earlier (short)
+  medium_lag_steps: 60                       # Appendix A.3: ending 60 steps earlier (medium)
+  threshold_sigma_multiplier: 3.0            # Appendix A.3: changing if abs change > 3 x sigma_hat
+
+counts:
+  own_signal_temporal: 10                    # Appendix B: Own-signal temporal (10)
+  statistical: 6                             # Appendix B: Statistical (6)
+  data_quality: 10                           # Appendix B: Data quality (10)
+  cross_sensor: 14                           # Appendix B: Cross-sensor (14)
+  long_term_degradation: 3                   # Appendix B: Long-term degradation (3)
+  group_event_joined: 6                      # Appendix B: Group/event joined onto sensor rows (6)
+  group_table_head_c: 11                     # Appendix B: Group table for Head C (about 11)

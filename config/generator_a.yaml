@@ -1,0 +1,234 @@
+# Generator A Configuration
+# All numbers locked exactly from Appendix A. Every number carries its Appendix A section tag.
+
+structure:
+  sampling_rate_minutes: 1                  # Appendix A.1: 1 reading per minute
+  scored_steps: 1440                         # Appendix A.1: 1,440 scored steps
+  warmup_steps: 480                          # Appendix A.1: 480 warm-up steps
+  total_steps: 1920                          # Appendix A.1: 1,920 total steps (1440 + 480)
+  total_scenarios: 1500                      # Appendix A.1: 1,500 scenarios for Generator A
+  train_scenarios: 900                       # Appendix A.1: 900 train scenarios
+  val_scenarios: 300                         # Appendix A.1: 300 val scenarios
+  test_scenarios: 300                        # Appendix A.1: 300 test scenarios
+  train_val_row_stride: 5                    # Appendix A.1: Row stride 5 for train/val
+  test_full_resolution_count: 150            # Appendix A.1: full resolution for 150 test scenarios
+  sensors_per_group_min: 4                   # Appendix A.1: integer 4 to 8 (min)
+  sensors_per_group_max: 8                   # Appendix A.1: integer 4 to 8 (max)
+  scenario_type_probs:
+    standard: 0.82                           # Appendix A.1: 82% standard
+    two_groups: 0.10                         # Appendix A.1: 10% two groups (4 to 6 sensors each)
+    single_sensor: 0.08                      # Appendix A.1: 8% single-sensor
+  two_groups_sensors_min: 4                  # Appendix A.1: two groups 4 to 6 sensors each (min)
+  two_groups_sensors_max: 6                  # Appendix A.1: two groups 4 to 6 sensors each (max)
+  max_faulty_sensors_fraction: 0.4           # Appendix A.1: max(1, floor(0.4 x n))
+  seeds:
+    generator_a_start: 1                     # Appendix A.1: A: 1 to 1,500
+    generator_a_end: 1500                    # Appendix A.1: A: 1 to 1,500
+    generator_b_start: 10001                 # Appendix A.1: B: 10,001 and up
+    shuffle_controls: [20001, 20002, 20003, 20004, 20005]  # Appendix A.1: shuffle controls: 20001 to 20005
+  healthy_missing_data:
+    rate_min: 0.0                            # Appendix A.1: per-sensor rate 0 to 1% (min)
+    rate_max: 0.01                           # Appendix A.1: per-sensor rate 0 to 1% (max)
+    zero_missing_sensor_fraction: 0.20       # Appendix A.1: 20% of sensors 0
+    burst_max: 3                             # Appendix A.1: bursts up to 3
+
+temperature_profile:
+  base_level_min: 2.0                        # Appendix A.2: uniform 2 to 38 C (min)
+  base_level_max: 38.0                       # Appendix A.2: uniform 2 to 38 C (max)
+  daily_cycle:
+    amplitude_min: 0.5                       # Appendix A.2: amplitude uniform 0.5 to 4 C (min)
+    amplitude_max: 4.0                       # Appendix A.2: amplitude uniform 0.5 to 4 C (max)
+    zero_amplitude_prob: 0.20                # Appendix A.2: 20% of scenarios zero
+    period_hours: 24                         # Appendix A.2: period 24 h
+    period_minutes: 1440                     # Appendix A.2: period 24 h (1,440 minutes)
+  slow_wander:
+    std_min: 0.2                             # Appendix A.2: std 0.2 to 0.8 C (min)
+    std_max: 0.8                             # Appendix A.2: std 0.2 to 0.8 C (max)
+    correlation_time_min: 120                # Appendix A.2: correlation time 120 to 360 min (min)
+    correlation_time_max: 360                # Appendix A.2: correlation time 120 to 360 min (max)
+    moving_average_steps: 5                  # Appendix A.2: then 5-step moving average
+  sensor_noise:
+    sigma_k_min: 0.05                        # Appendix A.2: log-uniform 0.05 to 0.30 C (min)
+    sigma_k_max: 0.30                        # Appendix A.2: log-uniform 0.05 to 0.30 C (max)
+    correlated_sensors_fraction: 0.20        # Appendix A.2: 20% of sensors mildly correlated
+    correlation_rho_min: 0.2                 # Appendix A.2: rho 0.2 to 0.5 (min)
+    correlation_rho_max: 0.5                 # Appendix A.2: rho 0.2 to 0.5 (max)
+  static_offset_min: -1.0                    # Appendix A.2: uniform +/-1.0 C per sensor (min)
+  static_offset_max: 1.0                     # Appendix A.2: uniform +/-1.0 C per sensor (max)
+  response_lag:
+    time_constant_min: 0.0                   # Appendix A.2: first-order, time constant 0 to 6 min (min)
+    time_constant_max: 6.0                   # Appendix A.2: first-order, time constant 0 to 6 min (max)
+    zero_lag_fraction: 0.40                  # Appendix A.2: 40% of sensors zero
+  quantisation:
+    values: [0.01, 0.05, 0.1, 0.25]          # Appendix A.2: 0.01 (25%), 0.05 (25%), 0.1 (35%), 0.25 (15%)
+    probabilities: [0.25, 0.25, 0.35, 0.15]  # Appendix A.2: 0.01 (25%), 0.05 (25%), 0.1 (35%), 0.25 (15%)
+  bounds:
+    environment_clip_min: -5.0               # Appendix A.2: environment clipped to [-5, 50] C (min)
+    environment_clip_max: 50.0               # Appendix A.2: environment clipped to [-5, 50] C (max)
+    sensor_clip_min: -10.0                   # Appendix A.2: sensor range [-10, 60] C (min)
+    sensor_clip_max: 60.0                    # Appendix A.2: sensor range [-10, 60] C (max)
+  unit_scaling:
+    celsius_prob: 0.70                       # Appendix A.2: 70% C
+    fahrenheit_prob: 0.15                    # Appendix A.2: 15% F
+    random_affine_prob: 0.15                 # Appendix A.2: 15% random affine
+    affine_multiplier_min: 0.5               # Appendix A.2: multiplier log-uniform 0.5 to 3 (min)
+    affine_multiplier_max: 3.0               # Appendix A.2: multiplier log-uniform 0.5 to 3 (max)
+
+genuine_events:
+  count_poisson_mean: 1.2                    # Appendix A.3: Poisson mean 1.2
+  count_max: 3                               # Appendix A.3: max 3 (about 30% of scenarios none)
+  type_probs:
+    step_exponential_recovery: 0.40          # Appendix A.3: step with exponential recovery 40%
+    ramp: 0.25                               # Appendix A.3: ramp 25%
+    pulse: 0.25                              # Appendix A.3: pulse 25%
+    sustained_shift: 0.10                    # Appendix A.3: sustained shift 10%
+  magnitude_min: 0.5                         # Appendix A.3: log-uniform 0.5 to 10 C (min)
+  magnitude_max: 10.0                        # Appendix A.3: log-uniform 0.5 to 10 C (max)
+  positive_sign_prob: 0.75                   # Appendix A.3: 75% positive
+  negative_sign_prob: 0.25                   # Appendix A.3: 25% negative
+  durations:
+    step_recovery_tau_min: 10                # Appendix A.3: recovery tau 10 to 120 min (min)
+    step_recovery_tau_max: 120               # Appendix A.3: recovery tau 10 to 120 min (max)
+    ramp_rise_fall_min: 20                   # Appendix A.3: ramp rise/fall 20 to 180 min (min)
+    ramp_rise_fall_max: 180                  # Appendix A.3: ramp rise/fall 20 to 180 min (max)
+    ramp_hold_min: 30                        # Appendix A.3: hold 30 to 180 min (min)
+    ramp_hold_max: 180                       # Appendix A.3: hold 30 to 180 min (max)
+    pulse_min: 5                             # Appendix A.3: pulse 5 to 30 min (min)
+    pulse_max: 30                            # Appendix A.3: pulse 5 to 30 min (max)
+    sustained_rise_min: 5                    # Appendix A.3: sustained rise 5 to 20 min then hold (min)
+    sustained_rise_max: 20                   # Appendix A.3: sustained rise 5 to 20 min then hold (max)
+  scope:
+    global_prob: 0.55                        # Appendix A.3: global 55%
+    global_attenuation_min: 0.6              # Appendix A.3: attenuation 0.6 to 1.0 (min)
+    global_attenuation_max: 1.0              # Appendix A.3: attenuation 0.6 to 1.0 (max)
+    partial_prob: 0.30                       # Appendix A.3: partial 30%
+    partial_sensors_fraction_min: 0.4        # Appendix A.3: 40 to 80% of sensors (min)
+    partial_sensors_fraction_max: 0.8        # Appendix A.3: 40 to 80% of sensors (max)
+    partial_attenuation_min: 0.3             # Appendix A.3: attenuation 0.3 to 1.0 (min)
+    partial_attenuation_max: 1.0             # Appendix A.3: attenuation 0.3 to 1.0 (max)
+    local_prob: 0.15                         # Appendix A.3: local 15%
+    local_sensors_min: 1                     # Appendix A.3: 1 to 2 sensors (min)
+    local_sensors_max: 2                     # Appendix A.3: 1 to 2 sensors (max)
+    local_attenuation_min: 0.7               # Appendix A.3: attenuation 0.7 to 1.0 (min)
+    local_attenuation_max: 1.0               # Appendix A.3: attenuation 0.7 to 1.0 (max)
+  arrival_delay_min: 0                       # Appendix A.3: Arrival delay per sensor 0 to 10 min (min)
+  arrival_delay_max: 10                      # Appendix A.3: Arrival delay per sensor 0 to 10 min (max)
+  detectability_threshold_sigma: 3.0         # Appendix A.3: genuine_event = 1 while event contribution at >= 1 sensor exceeds 3 x sigma_k
+
+faults:
+  prob_present_from_start: 0.10              # Appendix A.4: 10% of fault episodes present from step 0
+  spike:
+    episode_min: 30                          # Appendix A.4: episode 30 to 400 steps (min)
+    episode_max: 400                         # Appendix A.4: episode 30 to 400 steps (max)
+    interval_min: 10                         # Appendix A.4: a spike every 10 to 60 steps (min)
+    interval_max: 60                         # Appendix A.4: a spike every 10 to 60 steps (max)
+    size_sigma_min: 3.0                      # Appendix A.4: size 3 to 40 sigma_k (min)
+    size_sigma_max: 40.0                     # Appendix A.4: size 3 to 40 sigma_k (max)
+    length_probs:
+      1: 0.60                                # Appendix A.4: length 1 sample 60%
+      2: 0.25                                # Appendix A.4: 2 samples 25%
+      3: 0.15                                # Appendix A.4: 3 samples 15%
+    label_following_steps: 4                 # Appendix A.4: label active on spike samples plus 4 following steps
+  offset_drift:
+    ramp_steps_min: 60                       # Appendix A.4: ramp 60 to 720 steps (min)
+    ramp_steps_max: 720                      # Appendix A.4: ramp 60 to 720 steps (max)
+    final_bias_sigma_min: 1.0                # Appendix A.4: final bias 1 to 20 sigma_k (min)
+    final_bias_sigma_max: 20.0               # Appendix A.4: final bias 1 to 20 sigma_k (max)
+    plateau_steps_min: 0                     # Appendix A.4: plateau 0 to 600 steps (min)
+    plateau_steps_max: 600                   # Appendix A.4: plateau 0 to 600 steps (max)
+    shape_probs:
+      linear: 0.55                           # Appendix A.4: shape linear 55%
+      saturating: 0.20                       # Appendix A.4: saturating 20%
+      stepped: 0.15                          # Appendix A.4: stepped 15%
+      sudden_constant: 0.10                  # Appendix A.4: sudden constant offset 10%
+  gain_error:
+    duration_min: 120                        # Appendix A.4: duration 120 to 1,200 steps (min)
+    duration_max: 1200                       # Appendix A.4: duration 120 to 1,200 steps (max)
+    standard_prob: 0.85                      # Appendix A.4: g in 0.55 to 0.85 or 1.15 to 1.6 (85%)
+    standard_ranges:
+      low: [0.55, 0.85]                      # Appendix A.4: 0.55 to 0.85
+      high: [1.15, 1.60]                     # Appendix A.4: 1.15 to 1.6
+    subtle_prob: 0.15                        # Appendix A.4: subtle 0.90 to 0.95 or 1.05 to 1.10 (15%)
+    subtle_ranges:
+      low: [0.90, 0.95]                      # Appendix A.4: 0.90 to 0.95
+      high: [1.05, 1.10]                     # Appendix A.4: 1.05 to 1.10
+  frozen:
+    duration_min: 20                         # Appendix A.4: 20 to 400 steps (min)
+    duration_max: 400                        # Appendix A.4: 20 to 400 steps (max)
+    exactly_constant_prob: 0.60              # Appendix A.4: 60% exactly constant
+    jitter_prob: 0.40                        # Appendix A.4: 40% jitter
+    jitter_std_sigma_min: 0.02               # Appendix A.4: std 0.02 to 0.3 sigma_k (min)
+    jitter_std_sigma_max: 0.30               # Appendix A.4: std 0.02 to 0.3 sigma_k (max)
+    frozen_at_last_prob: 0.80                # Appendix A.4: frozen at last reading 80%
+    frozen_at_wrong_value_prob: 0.20         # Appendix A.4: wrong value 5 to 20 sigma_k away 20%
+    wrong_value_offset_sigma_min: 5.0        # Appendix A.4: 5 to 20 sigma_k away (min)
+    wrong_value_offset_sigma_max: 20.0       # Appendix A.4: 5 to 20 sigma_k away (max)
+  high_noise:
+    multiplier_min: 2.0                      # Appendix A.4: multiplier 2 to 10 x sigma_k (min)
+    multiplier_max: 10.0                     # Appendix A.4: multiplier 2 to 10 x sigma_k (max)
+    duration_min: 30                         # Appendix A.4: 30 to 600 steps (min)
+    duration_max: 600                        # Appendix A.4: 30 to 600 steps (max)
+    bursty_prob: 0.30                        # Appendix A.4: 30% bursty
+    burst_block_steps_min: 5                 # Appendix A.4: on/off blocks 5 to 30 steps (min)
+    burst_block_steps_max: 30                # Appendix A.4: on/off blocks 5 to 30 steps (max)
+  dropout:
+    enter_gap_prob_min: 0.002                # Appendix A.4: enter-gap probability 0.002 to 0.03 per step (min)
+    enter_gap_prob_max: 0.03                 # Appendix A.4: enter-gap probability 0.002 to 0.03 per step (max)
+    gap_length_mean_min: 2.0                 # Appendix A.4: gap length geometric, mean 2 to 40 (min)
+    gap_length_mean_max: 40.0                # Appendix A.4: gap length geometric, mean 2 to 40 (max)
+    gap_length_cap: 100                      # Appendix A.4: cap 100
+    episode_min: 60                          # Appendix A.4: episode 60 to 600 steps (min)
+    episode_max: 600                         # Appendix A.4: episode 60 to 600 steps (max)
+  slow_degradation:
+    h_end_min: 0.1                           # Appendix A.4: health h falls 1 to h_end (0.1 to 0.7) (min)
+    h_end_max: 0.7                           # Appendix A.4: health h falls 1 to h_end (0.1 to 0.7) (max)
+    duration_min: 240                        # Appendix A.4: over 240 to 1,200 steps (min)
+    duration_max: 1200                       # Appendix A.4: over 240 to 1,200 steps (max)
+    damage_noise_multiplier_slope: 5.0       # Appendix A.4: noise x(1 + 5d)
+    damage_bias_sigma_factor: 8.0            # Appendix A.4: bias +/-8 sigma_k x d
+    damage_extra_missing_rate_slope: 0.15    # Appendix A.4: extra missing rate 0.15 d
+    untrusted_damage_threshold: 0.15         # Appendix A.4: untrusted once d >= 0.15
+
+combinations:
+  faulty_sensors_probs:
+    0: 0.15                                  # Appendix A.5: Faulty sensors per scenario 0: 15%
+    1: 0.40                                  # Appendix A.5: 1: 40%
+    2: 0.25                                  # Appendix A.5: 2: 25%
+    3_or_more: 0.20                          # Appendix A.5: 3 or more: 20%
+  types_per_faulty_sensor_probs:
+    1: 0.65                                  # Appendix A.5: Types per faulty sensor: 1: 65%
+    2: 0.27                                  # Appendix A.5: 2: 27%
+    3: 0.08                                  # Appendix A.5: 3: 8%
+  second_fault_start_offset_min: -100        # Appendix A.5: Second fault starts within [first start - 100, first end]
+  start_inside_active_event_prob: 0.35       # Appendix A.5: 35% of fault episodes start inside an active event
+  shared_cause_pair_prob: 0.15               # Appendix A.5: Shared-cause pair in 15% of multi-fault scenarios
+  shared_cause_start_offset_max: 10          # Appendix A.5: starts within +/-10 steps
+
+difficulty_tiers:
+  easy:
+    prob: 0.30                               # Appendix A.6: EASY 30%
+    max_faulty_sensors: 1                    # Appendix A.6: at most 1 faulty sensor
+    single_fault_only: true                  # Appendix A.6: single clearly visible fault
+    spike_min_sigma: 8.0                     # Appendix A.6: spike >= 8 sigma
+    drift_min_sigma: 6.0                     # Appendix A.6: drift >= 6 sigma
+    gain_diff_min: 0.25                      # Appendix A.6: |g-1| >= 0.25
+    noise_mult_min: 4.0                      # Appendix A.6: noise multiplier >= 4
+    allowed_event_scopes: ["global", "none"] # Appendix A.6: global events or none
+  medium:
+    prob: 0.40                               # Appendix A.6: MEDIUM 40%
+    max_faulty_sensors: 2                    # Appendix A.6: up to 2 faulty sensors
+    max_types_per_sensor: 2                  # Appendix A.6: up to 2 fault types each
+  hard:
+    prob: 0.30                               # Appendix A.6: HARD 30%
+
+severity_formulas:
+  spike_divisor: 40.0                        # Appendix A.7: spike k/40
+  drift_divisor_sigma: 20.0                  # Appendix A.7: drift abs(bias)/(20 sigma_k)
+  gain_divisor: 0.6                          # Appendix A.7: gain abs(g-1)/0.6
+  frozen_severity_normal: 0.8                # Appendix A.7: frozen 0.8
+  frozen_severity_wrong_value: 1.0           # Appendix A.7: 1.0 if frozen at wrong value
+  noise_offset: 1.0                          # Appendix A.7: noise (m-1)/9 (subtract 1)
+  noise_divisor: 9.0                         # Appendix A.7: noise (m-1)/9 (divide by 9)
+  dropout_base: 0.3                          # Appendix A.7: dropout 0.3 + 0.7 x missing fraction
+  dropout_slope: 0.7                         # Appendix A.7: 0.7 x missing fraction over last 30 steps
+  dropout_missing_window: 30                 # Appendix A.7: over last 30 steps
