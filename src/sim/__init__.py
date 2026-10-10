@@ -4,6 +4,11 @@ Contains variable profile definitions, unit scaling transformations,
 environment simulation, sensor models, event generators, and fault injectors.
 """
 
+from src.sim.environment import (
+    EnvironmentSeries,
+    EnvironmentSimulator,
+    generate_environment_series,
+)
 from src.sim.profile import (
     TemperatureProfile,
     TemperatureScenarioParams,
@@ -19,4 +24,7 @@ __all__ = [
     "TemperatureProfile",
     "TemperatureScenarioParams",
     "TemperatureSensorParams",
+    "EnvironmentSeries",
+    "EnvironmentSimulator",
+    "generate_environment_series",
 ]
