@@ -9,7 +9,6 @@ import yaml
 
 def get_repo_root() -> Path:
     """Return the absolute Path to the repository root directory."""
-    # This file is at <repo_root>/src/utils/config.py
     current = Path(__file__).resolve()
     for parent in [current] + list(current.parents):
         if (parent / "PROGRESS.md").exists() or (parent / "requirements.txt").exists():
@@ -58,6 +57,15 @@ def load_all_configs(config_dir: Optional[Union[str, Path]] = None) -> Dict[str,
     return configs
 
 
+def _normalize_for_serialization(obj: Any) -> Any:
+    """Recursively convert all dictionary keys to strings so json.dumps sort_keys can compare them safely."""
+    if isinstance(obj, dict):
+        return {str(k): _normalize_for_serialization(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_normalize_for_serialization(item) for item in obj]
+    return obj
+
+
 def compute_config_hash(config_data: Union[Dict[str, Any], str, Path], length: int = 16) -> str:
     """Compute a deterministic SHA-256 hash of a config dictionary or YAML file.
     
@@ -79,8 +87,9 @@ def compute_config_hash(config_data: Union[Dict[str, Any], str, Path], length: i
     else:
         data = config_data
 
+    normalized = _normalize_for_serialization(data)
     # Canonical JSON string with sorted keys ensures deterministic hash
-    canonical_repr = json.dumps(data, sort_keys=True, ensure_ascii=True, default=str)
+    canonical_repr = json.dumps(normalized, sort_keys=True, ensure_ascii=True, default=str)
     hasher = hashlib.sha256(canonical_repr.encode("utf-8"))
     digest = hasher.hexdigest()
     return digest[:length] if length else digest

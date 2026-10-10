@@ -6,11 +6,11 @@
 
 ## CURRENT STATUS (update this block after every task)
 
-- **Current phase:** P0 (setup)
-- **Last completed task:** P0.3
-- **Next task:** P0.4
-- **Blocked on / open questions:** none
-- **Last human-verified phase:** none
+- **Current phase:** P0 (setup - complete, pending human confirmation of parameters)
+- **Last completed task:** P0.4
+- **Next task:** P1.1 (after human verification of P0 parameters)
+- **Blocked on / open questions:** User confirmation of parameters in docs/PARAMETERS_CHECK.md
+- **Last human-verified phase:** none (P0 ready for verification)
 
 ---
 
@@ -103,7 +103,7 @@ Dates are our targets (official: Round 2 online 15 to 18 Oct, finale 24 Oct 2026
 - [x] P0.1 [M] Create repo layout, Python environment, `requirements.txt` (pandas, numpy, scipy, scikit-learn, lightgbm, pyarrow, pyyaml, pytest, matplotlib), config loader.
 - [x] P0.2 [M] Run stamp utility: every run gets run id, seed, config hash, timestamp, written next to outputs.
 - [x] P0.3 [M] Put Appendix A into `config/*.yaml` exactly (no hard-coded numbers elsewhere); write `docs/SPEC.md` from this file for the record.
-- [ ] P0.4 [M] Smoke test that loads configs and prints the parameters.
+- [x] P0.4 [M] Smoke test that loads configs and prints the parameters.
 **Done when:** configs load, tests run, user confirms the parameters match Appendix A.
 
 ### P1. Generator A, batch mode (11 to 13 Oct)
@@ -204,12 +204,14 @@ Build in this order; three screens only.
 
 Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issues`
 
+- 2026-10-10 | P0.4 | Implemented and executed smoke test loading all 4 YAML configs, verifying schema & keys, and printing parameters | tests/test_smoke_configs.py | pytest tests/ passed (10/10); python tests/test_smoke_configs.py exited 0 | none
 - 2026-10-10 | P0.3 | Created generator_a.yaml, features.yaml, alarm.yaml, eval.yaml with exact Appendix A values; wrote docs/SPEC.md and docs/PARAMETERS_CHECK.md | config/*.yaml, docs/SPEC.md, docs/PARAMETERS_CHECK.md | all config keys verified against Appendix A text in docs/PARAMETERS_CHECK.md | none
 - 2026-10-10 | P0.2 | Run stamp utility with run id, seed, config hash, UTC timestamp, save/load | src/utils/stamp.py, tests/test_stamp.py | pytest tests/test_stamp.py passed (4/4) | none
 - 2026-10-10 | P0.1 | Created repo layout, Python 3.11 virtual environment, requirements.txt, config loader with SHA-256 hash | requirements.txt, .gitignore, README.md, src/**, tests/test_config.py, src/utils/config.py | pytest tests/test_config.py passed (5/5) | none
 
 ## 8. DECISION LOG (changes to locked parameters or plan; user approval required)
 
+- 2026-10-10 | P0.4 implementation choice: Added key string-normalization in compute_config_hash to guarantee deterministic comparison for mixed int/str dictionary keys.
 - 2026-10-10 | P0.1 implementation choice: Used Python 3.11 for ML package compatibility; implemented config loader in src/utils/config.py with canonical JSON serialization for deterministic SHA-256 hash calculation.
 - 2026-10-10 | Generator B parameters (old A.12) removed from this file so the agent building Generator A cannot see them; Generator B moves to a separate SPEC_B.md for a different agent. P8 rewritten accordingly. Robust spread in A.9 defined explicitly.
 - 2026-10-10 | Raw alarm persistence changed from 3 readings to **1 reading** (spikes last only 1 to 3 readings; conventional alarms fire on first crossing). "Critical event" level dropped for v1.
