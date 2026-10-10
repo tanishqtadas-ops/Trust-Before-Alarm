@@ -1,13 +1,13 @@
 # PARAMETERS_CHECK.md: Parameter Audit Table
 
-> Complete line-by-line verification table mapping each configuration key in `config/*.yaml` directly to its locked value and exact reference in Appendix A (plus Appendix B/C).
+> Complete line-by-line verification table mapping each configuration key in `config/*.yaml` directly to its locked value, exact reference in Appendix A (plus Appendix B/C), and approved implementation choices.
 
 ---
 
 ## 1. Generator A (`config/generator_a.yaml`)
 
 ### Structure & Scenario Matrix (Appendix A.1)
-| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text |
+| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text / Decision |
 |---|---|---|---|
 | `structure.sampling_rate_minutes` | `1` | A.1 | "Sampling: 1 reading per minute" |
 | `structure.scored_steps` | `1440` | A.1 | "Scored steps / warm-up / total: 1,440 / 480 / 1,920" |
@@ -19,14 +19,16 @@
 | `structure.test_scenarios` | `300` | A.1 | "300 test" |
 | `structure.train_val_row_stride` | `5` | A.1 | "Row stride: 5 for train/val" |
 | `structure.test_full_resolution_count` | `150` | A.1 | "full resolution for 150 test scenarios" |
+| `structure.test_stride_5_count` | `150` | Decision 8 | "Use stride 5 for the remaining 150 test scenarios" |
 | `structure.sensors_per_group_min` | `4` | A.1 | "Sensors per group: integer 4 to 8" |
 | `structure.sensors_per_group_max` | `8` | A.1 | "Sensors per group: integer 4 to 8" |
+| `structure.single_sensor_count` | `1` | A.1 | "single-sensor count is exactly 1" |
 | `structure.scenario_type_probs.standard` | `0.82` | A.1 | "Scenario types: 82% standard" |
 | `structure.scenario_type_probs.two_groups` | `0.10` | A.1 | "10% two groups (4 to 6 sensors each)" |
 | `structure.scenario_type_probs.single_sensor` | `0.08` | A.1 | "8% single-sensor" |
 | `structure.two_groups_sensors_min` | `4` | A.1 | "two groups (4 to 6 sensors each)" |
 | `structure.two_groups_sensors_max` | `6` | A.1 | "two groups (4 to 6 sensors each)" |
-| `structure.max_faulty_sensors_fraction` | `0.4` | A.1 | "Max simultaneous faulty sensors: max(1, floor(0.4 x n))" |
+| `structure.max_faulty_sensors_fraction` | `0.4` | A.1 / Decision 5 | "max(1, floor(0.4 x n)); upper bound preserving 0-fault scenarios" |
 | `structure.seeds.generator_a_start` | `1` | A.1 | "Seeds: A: 1 to 1,500" |
 | `structure.seeds.generator_a_end` | `1500` | A.1 | "Seeds: A: 1 to 1,500" |
 | `structure.seeds.generator_b_start` | `10001` | A.1 | "B: 10,001 and up" |
@@ -37,7 +39,7 @@
 | `structure.healthy_missing_data.burst_max` | `3` | A.1 | "bursts up to 3" |
 
 ### Temperature Profile (Appendix A.2)
-| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text |
+| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text / Decision |
 |---|---|---|---|
 | `temperature_profile.base_level_min` | `2.0` | A.2 | "Base level: uniform 2 to 38 C" |
 | `temperature_profile.base_level_max` | `38.0` | A.2 | "Base level: uniform 2 to 38 C" |
@@ -72,9 +74,12 @@
 | `temperature_profile.unit_scaling.random_affine_prob` | `0.15` | A.2 | "15% random affine" |
 | `temperature_profile.unit_scaling.affine_multiplier_min` | `0.5` | A.2 | "multiplier log-uniform 0.5 to 3" |
 | `temperature_profile.unit_scaling.affine_multiplier_max` | `3.0` | A.2 | "multiplier log-uniform 0.5 to 3" |
+| `temperature_profile.unit_scaling.affine_offset_min` | `-10.0` | Decision 1 | "Implementation choice: uniform [-10, 10] C" |
+| `temperature_profile.unit_scaling.affine_offset_max` | `10.0` | Decision 1 | "Implementation choice: uniform [-10, 10] C" |
+| `temperature_profile.unit_scaling.affine_offset_distribution` | `"uniform"` | Decision 1 | "Implementation choice" |
 
 ### Genuine Events (Appendix A.3)
-| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text |
+| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text / Decision |
 |---|---|---|---|
 | `genuine_events.count_poisson_mean` | `1.2` | A.3 | "Count: Poisson mean 1.2" |
 | `genuine_events.count_max` | `3` | A.3 | "max 3 (about 30% of scenarios none)" |
@@ -96,6 +101,7 @@
 | `genuine_events.durations.pulse_max` | `30` | A.3 | "pulse 5 to 30 min" |
 | `genuine_events.durations.sustained_rise_min` | `5` | A.3 | "sustained rise 5 to 20 min then hold" |
 | `genuine_events.durations.sustained_rise_max` | `20` | A.3 | "sustained rise 5 to 20 min then hold" |
+| `genuine_events.durations.sustained_hold_until_scenario_end` | `true` | Decision 2 | "sustained rise 5 to 20 min then hold until scenario end" |
 | `genuine_events.scope.global_prob` | `0.55` | A.3 | "Scope: global 55%" |
 | `genuine_events.scope.global_attenuation_min` | `0.6` | A.3 | "global attenuation 0.6 to 1.0" |
 | `genuine_events.scope.global_attenuation_max` | `1.0` | A.3 | "global attenuation 0.6 to 1.0" |
@@ -114,9 +120,10 @@
 | `genuine_events.detectability_threshold_sigma` | `3.0` | A.3 | "genuine_event = 1 while event contribution at >= 1 sensor exceeds 3 x sigma_k" |
 
 ### Fault Injectors (Appendix A.4)
-| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text |
+| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text / Decision |
 |---|---|---|---|
 | `faults.prob_present_from_start` | `0.10` | A.4 | "10% of fault episodes present from step 0" |
+| `faults.sensor_untrusted_rule` | `"active_interval"` | Decision 3 | "sensor_untrusted defined by active fault intervals" |
 | `faults.spike.episode_min` | `30` | A.4 | "episode 30 to 400 steps (log-uniform)" |
 | `faults.spike.episode_max` | `400` | A.4 | "episode 30 to 400 steps (log-uniform)" |
 | `faults.spike.interval_min` | `10` | A.4 | "a spike every 10 to 60 steps" |
@@ -179,7 +186,7 @@
 | `faults.slow_degradation.untrusted_damage_threshold` | `0.15` | A.4 | "untrusted once d >= 0.15" |
 
 ### Combinations & Difficulty Tiers (Appendix A.5, A.6)
-| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text |
+| Config Key | YAML Value | Appendix A Reference | Appendix A Source Text / Decision |
 |---|---|---|---|
 | `combinations.faulty_sensors_probs.0` | `0.15` | A.5 | "Faulty sensors per scenario: 0: 15%" |
 | `combinations.faulty_sensors_probs.1` | `0.40` | A.5 | "1: 40%" |
@@ -192,6 +199,9 @@
 | `combinations.start_inside_active_event_prob` | `0.35` | A.5 | "35% of fault episodes start inside an active event" |
 | `combinations.shared_cause_pair_prob` | `0.15` | A.5 | "Shared-cause pair in 15% of multi-fault scenarios" |
 | `combinations.shared_cause_start_offset_max` | `10` | A.5 | "starts within +/-10 steps" |
+| `combinations.shared_cause_severity_relative_tolerance` | `0.20` | Decision 6 | "within +/- 20% relative tolerance on normalized severity" |
+| `combinations.allowed_pairs` | `14 pairs` | A.5 | "Allowed pairs: spike+drift, spike+noise, spike+gain, ..." |
+| `combinations.forbidden_pairs` | `7 pairs` | A.5 | "Forbidden: frozen with spike/gain/noise/drift; ..." |
 | `difficulty_tiers.easy.prob` | `0.30` | A.6 | "EASY 30%" |
 | `difficulty_tiers.easy.max_faulty_sensors` | `1` | A.6 | "at most 1 faulty sensor" |
 | `difficulty_tiers.easy.spike_min_sigma` | `8.0` | A.6 | "spike >= 8 sigma" |
@@ -203,6 +213,7 @@
 | `difficulty_tiers.medium.max_faulty_sensors` | `2` | A.6 | "up to 2 faulty sensors" |
 | `difficulty_tiers.medium.max_types_per_sensor` | `2` | A.6 | "up to 2 fault types each" |
 | `difficulty_tiers.hard.prob` | `0.30` | A.6 | "HARD 30%" |
+| `difficulty_tiers.hard.mechanisms` | `7 mechanisms` | A.6 | "at least one hard mechanism (local event, ...)" |
 
 ### Severity Formulas (Appendix A.7)
 | Config Key | YAML Value | Appendix A Reference | Appendix A Source Text |
@@ -250,7 +261,7 @@
 
 ## 3. Alarm & Trust Engine (`config/alarm.yaml`)
 
-| Config Key | YAML Value | Appendix Reference | Appendix Source Text |
+| Config Key | YAML Value | Appendix Reference | Appendix Source Text / Decision |
 |---|---|---|---|
 | `raw_alarm.baseline_window_hours` | `8` | A.9 | "8-hour median" |
 | `raw_alarm.baseline_window_minutes` | `480` | A.9 | "8-hour median (480 minutes)" |
@@ -275,10 +286,13 @@
 | `trust_engine.alpha_recovering` | `0.05` | A.11 | "0.05 when recovering" |
 | `trust_engine.candidate_alphas_falling` | `[0.3, 0.5, 0.7]` | A.11 | "choose on validation from {0.3,0.5,0.7}" |
 | `trust_engine.candidate_alphas_recovering` | `[0.02, 0.05, 0.1]` | A.11 | "x {0.02,0.05,0.1}" |
-| `trust_engine.status_thresholds.healthy_min` | `0.8` | A.11 | "above 0.8 HEALTHY" |
-| `trust_engine.status_thresholds.watch_min` | `0.5` | A.11 | "0.5 to 0.8 WATCH" |
-| `trust_engine.status_thresholds.watch_max` | `0.8` | A.11 | "0.5 to 0.8 WATCH" |
-| `trust_engine.status_thresholds.unreliable_max` | `0.5` | A.11 | "below 0.5 UNRELIABLE" |
+| `trust_engine.status_thresholds.healthy_min` | `0.8` | A.11 / Decision 4 | "above 0.8 HEALTHY (T > 0.8)" |
+| `trust_engine.status_thresholds.watch_min` | `0.5` | A.11 / Decision 4 | "0.5 to 0.8 WATCH (0.5 <= T <= 0.8)" |
+| `trust_engine.status_thresholds.watch_max` | `0.8` | A.11 / Decision 4 | "0.5 to 0.8 WATCH (0.5 <= T <= 0.8)" |
+| `trust_engine.status_thresholds.unreliable_max` | `0.5` | A.11 / Decision 4 | "below 0.5 UNRELIABLE (T < 0.5)" |
+| `trust_engine.status_thresholds.healthy_rule` | `"T > 0.8"` | Decision 4 | "HEALTHY when T > 0.8" |
+| `trust_engine.status_thresholds.watch_rule` | `"0.5 <= T <= 0.8"` | Decision 4 | "WATCH when 0.5 <= T <= 0.8" |
+| `trust_engine.status_thresholds.unreliable_rule` | `"T < 0.5"` | Decision 4 | "UNRELIABLE when T < 0.5" |
 | `demo_presets.warmup_healthy_steps` | `480` | A.13 | "Start with at least 480 steps of healthy history" |
 | `demo_presets.chart_window_steps` | `240` | A.13 | "chart shows the last 240 readings" |
 | `demo_presets.playback_seconds_per_minute` | `1.0` | A.13 | "Playback 1 second per simulated minute" |
@@ -329,30 +343,17 @@
 
 ## 5. Audit Review & Parameter Analysis
 
-### 5.1 Categorical Specifications (Identified for Explicit Inclusion)
-The following categorical rules from Appendix A must be formally maintained in configuration rather than hard-coded into simulation logic:
+### 5.1 Approved Implementation Decisions (Recorded & Applied)
+1. **Random Affine Offset (Appendix A.2):** Range $[-10.0, 10.0]^\circ\text{C}$, Uniform distribution.
+2. **Sustained Environmental Event Termination (Appendix A.3):** Interpreted as holding until the scenario ends (step 1920) after rise.
+3. **Ground-Truth `sensor_untrusted` Label (Appendix A.4, A.7):** Defined by active fault-label intervals, including explicit spike window (samples + 4 steps) and slow degradation threshold ($d \ge 0.15$).
+4. **Exact Trust-Status Boundaries (Appendix A.11):** HEALTHY when $T > 0.8$, WATCH when $0.5 \le T \le 0.8$, and UNRELIABLE when $T < 0.5$.
+5. **Simultaneous Fault Cap (Appendix A.1 vs A.5):** $\max(1, \lfloor 0.4 \times n \rfloor)$ acts as an upper-bound cap on simultaneous faults that preserves the 15% zero-fault healthy scenarios.
+6. **Shared-Cause Similarity (Appendix A.5):** Defined as within $\pm 20\%$ relative tolerance on normalized fault severity ($|s_1 - s_2| / \max(s_1, s_2) \le 0.20$).
+7. **Subtle Faults (Appendix A.4, A.6):** Defined strictly from source ranges specified in Appendix A.4 (gain error $g \in [0.90, 0.95] \cup [1.05, 1.10]$).
+8. **Test Set Stride Split (Appendix A.1):** 150 test scenarios at full resolution (stride 1); remaining 150 test scenarios at stride 5 (matching train/val).
 
-* **Allowed Fault Pairs (Appendix A.5):**
-  `spike+drift`, `spike+noise`, `spike+gain`, `drift+noise`, `drift+gain`, `gain+noise`, `dropout with anything`, `degradation+spike`, `degradation+gain`.
-* **Forbidden Fault Pairs (Appendix A.5):**
-  `frozen with spike/gain/noise/drift`; `degradation with drift/noise/dropout`.
-* **HARD-Tier Mechanisms (Appendix A.6):**
-  `local_event`, `fault_during_event`, `subtle_fault`, `shared_cause_pair`, `faulty_fraction_at_cap_small_group`, `no_clear_majority`, `sensor_near_bounds`.
-
-### 5.2 Specific Investigation Findings
-1. **Random Affine Offset Range / Distribution (Appendix A.2):**
-   * *Status:* Undefined in specification.
-   * *Observation:* Appendix A.2 states `multiplier log-uniform 0.5 to 3, random offset` without providing minimum/maximum bounds or distribution for the additive offset.
-2. **Sustained Environmental Event Hold Duration / Termination (Appendix A.3):**
-   * *Status:* Undefined in specification.
-   * *Observation:* Appendix A.3 specifies `sustained rise 5 to 20 min then hold`. It does not define how long the hold lasts or if it terminates before step 1920.
-3. **Ground-Truth `sensor_untrusted` Label Definition (Appendix A.4, A.7):**
-   * *Status:* Ambiguous across fault modes.
-   * *Observation:* Explicit definition is provided for slow degradation (`d >= 0.15`) and active spike window (`samples + 4 steps`), but the exact mapping for other fault modes (offset drift, gain error, frozen, high noise, dropout) relative to severity or active episode is not unified.
-4. **Exact Status Boundaries at Trust Score 0.8 and 0.5 (Appendix A.11):**
-   * *Status:* Boundary closure unspecified.
-   * *Observation:* Spec states `above 0.8 HEALTHY, 0.5 to 0.8 WATCH, below 0.5 UNRELIABLE`. Needs confirmation on boundary inclusivity ($T = 0.8000$ and $T = 0.5000$).
-5. **Simultaneous Fault Cap vs Zero-Fault Scenarios (Appendix A.1 vs A.5):**
-   * *Status:* Clarification required.
-   * *Observation:* Appendix A.1 formula $\max(1, \lfloor 0.4 \times n \rfloor)$ acts as an upper-bound cap on simultaneous faults. It must not override the 15% zero-fault healthy scenario allocation from Appendix A.5.
-
+### 5.2 Pending Operational Definitions (Awaiting Human Approval)
+1. **"No Clear Majority" (Appendix A.6):** Operational definition proposed as group split where exactly $\lfloor n/2 \rfloor$ sensors diverge from the remainder, or bimodal dispersion with no cluster exceeding 50%.
+2. **"Sensor Near Bounds" (Appendix A.6):** Operational definition proposed as readings within $3\sigma_k$ or $2^\circ\text{C}$ of physical clipping limits ($-5^\circ\text{C}$ / $50^\circ\text{C}$ for environment; $-10^\circ\text{C}$ / $60^\circ\text{C}$ for sensor).
+3. **"Small Group" (Appendix A.6):** Confirmed as 4 sensors ($n=4$, lower bound of Appendix A.1).

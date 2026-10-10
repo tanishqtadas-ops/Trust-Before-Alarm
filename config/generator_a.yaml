@@ -12,15 +12,17 @@ structure:
   test_scenarios: 300                        # Appendix A.1: 300 test scenarios
   train_val_row_stride: 5                    # Appendix A.1: Row stride 5 for train/val
   test_full_resolution_count: 150            # Appendix A.1: full resolution for 150 test scenarios
+  test_stride_5_count: 150                   # Appendix A.1 / Decision 8: stride 5 for remaining 150 test scenarios
   sensors_per_group_min: 4                   # Appendix A.1: integer 4 to 8 (min)
   sensors_per_group_max: 8                   # Appendix A.1: integer 4 to 8 (max)
+  single_sensor_count: 1                     # Appendix A.1: single-sensor count is exactly 1
   scenario_type_probs:
     standard: 0.82                           # Appendix A.1: 82% standard
     two_groups: 0.10                         # Appendix A.1: 10% two groups (4 to 6 sensors each)
     single_sensor: 0.08                      # Appendix A.1: 8% single-sensor
   two_groups_sensors_min: 4                  # Appendix A.1: two groups 4 to 6 sensors each (min)
   two_groups_sensors_max: 6                  # Appendix A.1: two groups 4 to 6 sensors each (max)
-  max_faulty_sensors_fraction: 0.4           # Appendix A.1: max(1, floor(0.4 x n))
+  max_faulty_sensors_fraction: 0.4           # Appendix A.1 / Decision 5: upper bound cap max(1, floor(0.4 x n)), preserves 0-fault
   seeds:
     generator_a_start: 1                     # Appendix A.1: A: 1 to 1,500
     generator_a_end: 1500                    # Appendix A.1: A: 1 to 1,500
@@ -73,6 +75,9 @@ temperature_profile:
     random_affine_prob: 0.15                 # Appendix A.2: 15% random affine
     affine_multiplier_min: 0.5               # Appendix A.2: multiplier log-uniform 0.5 to 3 (min)
     affine_multiplier_max: 3.0               # Appendix A.2: multiplier log-uniform 0.5 to 3 (max)
+    affine_offset_min: -10.0                 # Decision 1: implementation choice uniform [-10, 10] C
+    affine_offset_max: 10.0                  # Decision 1: implementation choice uniform [-10, 10] C
+    affine_offset_distribution: "uniform"    # Decision 1: implementation choice
 
 genuine_events:
   count_poisson_mean: 1.2                    # Appendix A.3: Poisson mean 1.2
@@ -97,6 +102,7 @@ genuine_events:
     pulse_max: 30                            # Appendix A.3: pulse 5 to 30 min (max)
     sustained_rise_min: 5                    # Appendix A.3: sustained rise 5 to 20 min then hold (min)
     sustained_rise_max: 20                   # Appendix A.3: sustained rise 5 to 20 min then hold (max)
+    sustained_hold_until_scenario_end: true  # Decision 2: sustained hold lasts until scenario end
   scope:
     global_prob: 0.55                        # Appendix A.3: global 55%
     global_attenuation_min: 0.6              # Appendix A.3: attenuation 0.6 to 1.0 (min)
@@ -117,6 +123,7 @@ genuine_events:
 
 faults:
   prob_present_from_start: 0.10              # Appendix A.4: 10% of fault episodes present from step 0
+  sensor_untrusted_rule: "active_interval"   # Decision 3: untrusted on active intervals (spike +4, degradation d>=0.15)
   spike:
     episode_min: 30                          # Appendix A.4: episode 30 to 400 steps (min)
     episode_max: 400                         # Appendix A.4: episode 30 to 400 steps (max)
@@ -203,6 +210,30 @@ combinations:
   start_inside_active_event_prob: 0.35       # Appendix A.5: 35% of fault episodes start inside an active event
   shared_cause_pair_prob: 0.15               # Appendix A.5: Shared-cause pair in 15% of multi-fault scenarios
   shared_cause_start_offset_max: 10          # Appendix A.5: starts within +/-10 steps
+  shared_cause_severity_relative_tolerance: 0.20 # Decision 6: relative tolerance +/- 20% normalized severity
+  allowed_pairs:                             # Appendix A.5: Allowed pairs
+    - ["spike", "offset_drift"]
+    - ["spike", "high_noise"]
+    - ["spike", "gain_error"]
+    - ["offset_drift", "high_noise"]
+    - ["offset_drift", "gain_error"]
+    - ["gain_error", "high_noise"]
+    - ["dropout", "spike"]
+    - ["dropout", "offset_drift"]
+    - ["dropout", "gain_error"]
+    - ["dropout", "frozen"]
+    - ["dropout", "high_noise"]
+    - ["dropout", "slow_degradation"]
+    - ["slow_degradation", "spike"]
+    - ["slow_degradation", "gain_error"]
+  forbidden_pairs:                           # Appendix A.5: Forbidden combinations
+    - ["frozen", "spike"]
+    - ["frozen", "gain_error"]
+    - ["frozen", "high_noise"]
+    - ["frozen", "offset_drift"]
+    - ["slow_degradation", "offset_drift"]
+    - ["slow_degradation", "high_noise"]
+    - ["slow_degradation", "dropout"]
 
 difficulty_tiers:
   easy:
@@ -220,6 +251,14 @@ difficulty_tiers:
     max_types_per_sensor: 2                  # Appendix A.6: up to 2 fault types each
   hard:
     prob: 0.30                               # Appendix A.6: HARD 30%
+    mechanisms:                              # Appendix A.6: Hard mechanisms (categorical only)
+      - "local_event"
+      - "fault_during_event"
+      - "subtle_fault"
+      - "shared_cause_pair"
+      - "faulty_fraction_at_cap_small_group"
+      - "no_clear_majority"
+      - "sensor_near_bounds"
 
 severity_formulas:
   spike_divisor: 40.0                        # Appendix A.7: spike k/40

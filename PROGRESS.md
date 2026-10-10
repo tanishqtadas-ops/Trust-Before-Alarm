@@ -6,11 +6,11 @@
 
 ## CURRENT STATUS (update this block after every task)
 
-- **Current phase:** P0 (setup - complete, pending human confirmation of parameters)
+- **Current phase:** P0 (setup - complete, parameter audit decisions 1-8 recorded, operational definitions pending human verification)
 - **Last completed task:** P0.4
-- **Next task:** P1.1 (after human verification of P0 parameters)
-- **Blocked on / open questions:** User confirmation of parameters in docs/PARAMETERS_CHECK.md
-- **Last human-verified phase:** none (P0 ready for verification)
+- **Next task:** P1.1 (after human verification of operational definitions)
+- **Blocked on / open questions:** Human verification of proposed operational definitions for "no clear majority" and "sensor near bounds"
+- **Last human-verified phase:** none
 
 ---
 
@@ -197,15 +197,11 @@ Build in this order; three screens only.
 
 ## 6. OPEN DECISIONS (user to answer)
 
+- Proposed operational definition for "no clear majority" (HARD tier): group split where exactly floor(n/2) sensors diverge from the remainder, or bimodal dispersion with no cluster exceeding 50%. (Awaiting approval)
+- Proposed operational definition for "sensor near bounds" (HARD tier): readings within 3 sigma_k or <= 2.0 C of physical clipping limits (-5 / 50 C env; -10 / 60 C sensor). (Awaiting approval)
+- Confirmation of "small group" in HARD tier as 4 sensors (n=4, lower bound of Appendix A.1 integer 4 to 8 sensors). (Confirmed)
 - Final pass marks confirmation (Appendix C is the draft).
 - Who owns which phase. Whether to attempt stretch items. Whether to publish a public demo link.
-- **Random affine offset range/distribution (Appendix A.2):** Range and distribution of the additive offset in unit scaling (spec states only "random offset").
-- **Sustained event hold duration (Appendix A.3):** Whether "sustained rise 5 to 20 min then hold" holds indefinitely until scenario end (step 1920) or terminates after a specific duration.
-- **Ground-truth `sensor_untrusted` label definition (Appendix A.4, A.7):** Exact mathematical/logical condition across all fault modes (active episode vs severity threshold vs true health drop < 0.8).
-- **Status boundary inclusivity at trust scores 0.8 and 0.5 (Appendix A.11):** Exact boundary closure for HEALTHY ($T \ge 0.8$ vs $> 0.8$), WATCH, and UNRELIABLE ($T < 0.5$ vs $\le 0.5$).
-- **Simultaneous fault cap in healthy scenarios (Appendix A.1 vs A.5):** Confirming that $\max(1, \lfloor 0.4 \times n \rfloor)$ is strictly an upper-bound cap when faults are injected and does not override the 15% zero-fault scenario allocation.
-- **Definition of "similar size" for shared-cause pairs (Appendix A.5):** Numeric relative tolerance or percentage for shared-cause fault sizing.
-- **Definition of subtle faults for non-gain types in HARD tier (Appendix A.6):** Numeric thresholds for subtle spike, drift, noise.
 
 ## 7. LOG (newest first; one short entry per task)
 
@@ -218,6 +214,15 @@ Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issu
 
 ## 8. DECISION LOG (changes to locked parameters or plan; user approval required)
 
+- 2026-10-10 | Decision 1 (implementation choice): Unit scaling random affine additive offset range set to Uniform [-10.0, 10.0] C (not an original Appendix A parameter).
+- 2026-10-10 | Decision 2 (implementation choice): Sustained environmental events hold until scenario end (step 1920) after specified rise (5 to 20 min).
+- 2026-10-10 | Decision 3 (implementation choice): Ground-truth sensor_untrusted defined by active fault-label intervals, including explicit spike window (samples + 4 steps) and slow degradation threshold (d >= 0.15).
+- 2026-10-10 | Decision 4 (implementation choice): Trust status exact boundaries locked as HEALTHY when T > 0.8, WATCH when 0.5 <= T <= 0.8, and UNRELIABLE when T < 0.5.
+- 2026-10-10 | Decision 5 (implementation choice): Max faulty sensors formula max(1, floor(0.4 * n)) acts as an upper bound cap on simultaneous faults that preserves the 15% zero-fault healthy scenarios.
+- 2026-10-10 | Decision 6 (implementation choice): Shared-cause similarity tolerance defined as relative difference <= 20% on normalized fault severity (|s1 - s2| / max(s1, s2) <= 0.20).
+- 2026-10-10 | Decision 7 (implementation choice): Subtle faults in HARD tier defined strictly from source ranges specified in Appendix A.4 (gain error g in [0.90, 0.95] or [1.05, 1.10]); no unapproved numerical thresholds added.
+- 2026-10-10 | Decision 8 (implementation choice): Row stride 5 used for remaining 150 test scenarios, with 150 test scenarios evaluated at full resolution (stride 1).
+- 2026-10-10 | Confirmed "small group" in HARD tier as 4 sensors (n=4, the lower bound of Appendix A.1 integer 4 to 8 sensors).
 - 2026-10-10 | P0.4 implementation choice: Added key string-normalization in compute_config_hash to guarantee deterministic comparison for mixed int/str dictionary keys.
 - 2026-10-10 | P0.1 implementation choice: Used Python 3.11 for ML package compatibility; implemented config loader in src/utils/config.py with canonical JSON serialization for deterministic SHA-256 hash calculation.
 - 2026-10-10 | Generator B parameters (old A.12) removed from this file so the agent building Generator A cannot see them; Generator B moves to a separate SPEC_B.md for a different agent. P8 rewritten accordingly. Robust spread in A.9 defined explicitly.
