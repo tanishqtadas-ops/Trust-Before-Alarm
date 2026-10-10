@@ -56,6 +56,11 @@ def test_smoke_load_configs():
     assert gen_a["temperature_profile"]["bounds"]["environment_clip_min"] == -5.0
     assert gen_a["genuine_events"]["count_poisson_mean"] == 1.2
     assert gen_a["faults"]["spike"]["size_sigma_max"] == 40.0
+    assert gen_a["difficulty_tiers"]["hard"]["small_group_sensor_count"] == 4
+    assert gen_a["difficulty_tiers"]["hard"]["no_clear_majority_cluster_max_fraction"] == 0.50
+    assert gen_a["difficulty_tiers"]["hard"]["sensor_near_bounds"]["sigma_k_multiplier"] == 3.0
+    assert gen_a["difficulty_tiers"]["hard"]["sensor_near_bounds"]["fixed_margin_celsius"] == 2.0
+    assert gen_a["difficulty_tiers"]["hard"]["sensor_near_bounds"]["check_canonical_celsius"] is True
 
     # Verify key sections from Features
     feats = configs["features"]

@@ -6,11 +6,11 @@
 
 ## CURRENT STATUS (update this block after every task)
 
-- **Current phase:** P0 (setup - complete, parameter audit decisions 1-8 recorded, operational definitions pending human verification)
-- **Last completed task:** P0.4
-- **Next task:** P1.1 (after human verification of operational definitions)
-- **Blocked on / open questions:** Human verification of proposed operational definitions for "no clear majority" and "sensor near bounds"
-- **Last human-verified phase:** none
+- **Current phase:** P0 (setup - complete, all specification & engineering decisions finalized and verified)
+- **Last completed task:** P0.4 (P0 specification finalized and locked)
+- **Next task:** P1.1 (Generator A temperature profile)
+- **Blocked on / open questions:** none
+- **Last human-verified phase:** P0 (verified)
 
 ---
 
@@ -197,10 +197,7 @@ Build in this order; three screens only.
 
 ## 6. OPEN DECISIONS (user to answer)
 
-- Proposed operational definition for "no clear majority" (HARD tier): group split where exactly floor(n/2) sensors diverge from the remainder, or bimodal dispersion with no cluster exceeding 50%. (Awaiting approval)
-- Proposed operational definition for "sensor near bounds" (HARD tier): readings within 3 sigma_k or <= 2.0 C of physical clipping limits (-5 / 50 C env; -10 / 60 C sensor). (Awaiting approval)
-- Confirmation of "small group" in HARD tier as 4 sensors (n=4, lower bound of Appendix A.1 integer 4 to 8 sensors). (Confirmed)
-- Final pass marks confirmation (Appendix C is the draft).
+- Final pass marks confirmation before evaluation (Appendix C is the draft).
 - Who owns which phase. Whether to attempt stretch items. Whether to publish a public demo link.
 
 ## 7. LOG (newest first; one short entry per task)
@@ -214,7 +211,10 @@ Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issu
 
 ## 8. DECISION LOG (changes to locked parameters or plan; user approval required)
 
-- 2026-10-10 | Decision 1 (implementation choice): Unit scaling random affine additive offset range set to Uniform [-10.0, 10.0] C (not an original Appendix A parameter).
+- 2026-10-10 | Decision (implementation choice): "No clear majority" operational definition locked as no cluster of valid sensor readings containing > 50% of sensors (50/50 split in an even-sized group qualifies).
+- 2026-10-10 | Decision (implementation choice): "Sensor near bounds" operational definition locked as pre-clipping reading within max(3 x sigma_k, 2.0 C) of corresponding clipping rail in canonical Celsius before unit scaling.
+- 2026-10-10 | Decision (implementation choice): "Small group" locked as exactly 4 sensors (n=4).
+- 2026-10-10 | Decision 1 (ENG assumption, not official PS parameter): Unit scaling random affine additive offset range set to Uniform [-10.0, 10.0] C.
 - 2026-10-10 | Decision 2 (implementation choice): Sustained environmental events hold until scenario end (step 1920) after specified rise (5 to 20 min).
 - 2026-10-10 | Decision 3 (implementation choice): Ground-truth sensor_untrusted defined by active fault-label intervals, including explicit spike window (samples + 4 steps) and slow degradation threshold (d >= 0.15).
 - 2026-10-10 | Decision 4 (implementation choice): Trust status exact boundaries locked as HEALTHY when T > 0.8, WATCH when 0.5 <= T <= 0.8, and UNRELIABLE when T < 0.5.
@@ -222,7 +222,6 @@ Format: `YYYY-MM-DD | task id | what was done | files | how verified | open issu
 - 2026-10-10 | Decision 6 (implementation choice): Shared-cause similarity tolerance defined as relative difference <= 20% on normalized fault severity (|s1 - s2| / max(s1, s2) <= 0.20).
 - 2026-10-10 | Decision 7 (implementation choice): Subtle faults in HARD tier defined strictly from source ranges specified in Appendix A.4 (gain error g in [0.90, 0.95] or [1.05, 1.10]); no unapproved numerical thresholds added.
 - 2026-10-10 | Decision 8 (implementation choice): Row stride 5 used for remaining 150 test scenarios, with 150 test scenarios evaluated at full resolution (stride 1).
-- 2026-10-10 | Confirmed "small group" in HARD tier as 4 sensors (n=4, the lower bound of Appendix A.1 integer 4 to 8 sensors).
 - 2026-10-10 | P0.4 implementation choice: Added key string-normalization in compute_config_hash to guarantee deterministic comparison for mixed int/str dictionary keys.
 - 2026-10-10 | P0.1 implementation choice: Used Python 3.11 for ML package compatibility; implemented config loader in src/utils/config.py with canonical JSON serialization for deterministic SHA-256 hash calculation.
 - 2026-10-10 | Generator B parameters (old A.12) removed from this file so the agent building Generator A cannot see them; Generator B moves to a separate SPEC_B.md for a different agent. P8 rewritten accordingly. Robust spread in A.9 defined explicitly.

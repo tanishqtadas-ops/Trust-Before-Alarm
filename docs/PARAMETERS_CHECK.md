@@ -1,6 +1,6 @@
 # PARAMETERS_CHECK.md: Parameter Audit Table
 
-> Complete line-by-line verification table mapping each configuration key in `config/*.yaml` directly to its locked value, exact reference in Appendix A (plus Appendix B/C), and approved implementation choices.
+> Complete line-by-line verification table mapping each configuration key in `config/*.yaml` directly to its locked value, exact reference in Appendix A (plus Appendix B/C), and approved engineering choices.
 
 ---
 
@@ -74,9 +74,9 @@
 | `temperature_profile.unit_scaling.random_affine_prob` | `0.15` | A.2 | "15% random affine" |
 | `temperature_profile.unit_scaling.affine_multiplier_min` | `0.5` | A.2 | "multiplier log-uniform 0.5 to 3" |
 | `temperature_profile.unit_scaling.affine_multiplier_max` | `3.0` | A.2 | "multiplier log-uniform 0.5 to 3" |
-| `temperature_profile.unit_scaling.affine_offset_min` | `-10.0` | Decision 1 | "Implementation choice: uniform [-10, 10] C" |
-| `temperature_profile.unit_scaling.affine_offset_max` | `10.0` | Decision 1 | "Implementation choice: uniform [-10, 10] C" |
-| `temperature_profile.unit_scaling.affine_offset_distribution` | `"uniform"` | Decision 1 | "Implementation choice" |
+| `temperature_profile.unit_scaling.affine_offset_min` | `-10.0` | Decision 1 | "Engineering assumption (ENG, not official PS parameter): uniform [-10, 10] C" |
+| `temperature_profile.unit_scaling.affine_offset_max` | `10.0` | Decision 1 | "Engineering assumption (ENG, not official PS parameter): uniform [-10, 10] C" |
+| `temperature_profile.unit_scaling.affine_offset_distribution` | `"uniform"` | Decision 1 | "Engineering assumption (ENG, not official PS parameter)" |
 
 ### Genuine Events (Appendix A.3)
 | Config Key | YAML Value | Appendix A Reference | Appendix A Source Text / Decision |
@@ -213,6 +213,11 @@
 | `difficulty_tiers.medium.max_faulty_sensors` | `2` | A.6 | "up to 2 faulty sensors" |
 | `difficulty_tiers.medium.max_types_per_sensor` | `2` | A.6 | "up to 2 fault types each" |
 | `difficulty_tiers.hard.prob` | `0.30` | A.6 | "HARD 30%" |
+| `difficulty_tiers.hard.small_group_sensor_count` | `4` | Decision 2 | "small group means exactly 4 sensors" |
+| `difficulty_tiers.hard.no_clear_majority_cluster_max_fraction` | `0.50` | Decision 3 | "no cluster contains > 50% of valid sensors (50/50 split qualifies)" |
+| `difficulty_tiers.hard.sensor_near_bounds.sigma_k_multiplier` | `3.0` | Decision 4 | "within max(3 x sigma_k, 2.0 C) of boundary" |
+| `difficulty_tiers.hard.sensor_near_bounds.fixed_margin_celsius` | `2.0` | Decision 4 | "within max(3 x sigma_k, 2.0 C) of boundary" |
+| `difficulty_tiers.hard.sensor_near_bounds.check_canonical_celsius` | `true` | Decision 4 | "performed in canonical Celsius before unit scaling" |
 | `difficulty_tiers.hard.mechanisms` | `7 mechanisms` | A.6 | "at least one hard mechanism (local event, ...)" |
 
 ### Severity Formulas (Appendix A.7)
@@ -343,17 +348,15 @@
 
 ## 5. Audit Review & Parameter Analysis
 
-### 5.1 Approved Implementation Decisions (Recorded & Applied)
-1. **Random Affine Offset (Appendix A.2):** Range $[-10.0, 10.0]^\circ\text{C}$, Uniform distribution.
-2. **Sustained Environmental Event Termination (Appendix A.3):** Interpreted as holding until the scenario ends (step 1920) after rise.
-3. **Ground-Truth `sensor_untrusted` Label (Appendix A.4, A.7):** Defined by active fault-label intervals, including explicit spike window (samples + 4 steps) and slow degradation threshold ($d \ge 0.15$).
-4. **Exact Trust-Status Boundaries (Appendix A.11):** HEALTHY when $T > 0.8$, WATCH when $0.5 \le T \le 0.8$, and UNRELIABLE when $T < 0.5$.
-5. **Simultaneous Fault Cap (Appendix A.1 vs A.5):** $\max(1, \lfloor 0.4 \times n \rfloor)$ acts as an upper-bound cap on simultaneous faults that preserves the 15% zero-fault healthy scenarios.
-6. **Shared-Cause Similarity (Appendix A.5):** Defined as within $\pm 20\%$ relative tolerance on normalized fault severity ($|s_1 - s_2| / \max(s_1, s_2) \le 0.20$).
-7. **Subtle Faults (Appendix A.4, A.6):** Defined strictly from source ranges specified in Appendix A.4 (gain error $g \in [0.90, 0.95] \cup [1.05, 1.10]$).
-8. **Test Set Stride Split (Appendix A.1):** 150 test scenarios at full resolution (stride 1); remaining 150 test scenarios at stride 5 (matching train/val).
-
-### 5.2 Pending Operational Definitions (Awaiting Human Approval)
-1. **"No Clear Majority" (Appendix A.6):** Operational definition proposed as group split where exactly $\lfloor n/2 \rfloor$ sensors diverge from the remainder, or bimodal dispersion with no cluster exceeding 50%.
-2. **"Sensor Near Bounds" (Appendix A.6):** Operational definition proposed as readings within $3\sigma_k$ or $2^\circ\text{C}$ of physical clipping limits ($-5^\circ\text{C}$ / $50^\circ\text{C}$ for environment; $-10^\circ\text{C}$ / $60^\circ\text{C}$ for sensor).
-3. **"Small Group" (Appendix A.6):** Confirmed as 4 sensors ($n=4$, lower bound of Appendix A.1).
+### 5.1 Finalized Engineering Decisions (Recorded & Applied)
+1. **Random Affine Offset (Appendix A.2):** Range $[-10.0, 10.0]^\circ\text{C}$, Uniform distribution. Explicitly classified as an engineering assumption (ENG), not an official problem-statement parameter.
+2. **"Small Group" (Appendix A.6):** Operationalized as exactly 4 sensors ($n=4$).
+3. **"No Clear Majority" (Appendix A.6, HARD Tier):** Operationalized as occurring when no cluster of valid sensor readings contains more than 50% of sensors; an exact 50/50 split in an even-sized group qualifies.
+4. **"Sensor Near Bounds" (Appendix A.6, HARD Tier):** Operationalized as occurring when the relevant pre-clipping environment or sensor reading is within $\max(3\sigma_k, 2.0^\circ\text{C})$ of its corresponding clipping boundary ($-5^\circ\text{C}$ or $50^\circ\text{C}$ for environment; $-10^\circ\text{C}$ or $60^\circ\text{C}$ for sensor), evaluated in canonical Celsius before unit scaling.
+5. **Sustained Environmental Event Termination (Appendix A.3):** Interpreted as holding until the scenario ends (step 1920) after specified rise ($5\text{--}20$ min).
+6. **Ground-Truth `sensor_untrusted` Label (Appendix A.4, A.7):** Defined by active fault-label intervals, including explicit spike window (samples + 4 steps) and slow degradation threshold ($d \ge 0.15$).
+7. **Exact Trust-Status Boundaries (Appendix A.11):** HEALTHY when $T > 0.8$, WATCH when $0.5 \le T \le 0.8$, and UNRELIABLE when $T < 0.5$.
+8. **Simultaneous Fault Cap (Appendix A.1 vs A.5):** $\max(1, \lfloor 0.4 \times n \rfloor)$ acts as an upper-bound cap on simultaneous faults that preserves the 15% zero-fault healthy scenarios.
+9. **Shared-Cause Similarity (Appendix A.5):** Defined as within $\pm 20\%$ relative tolerance on normalized fault severity ($|s_1 - s_2| / \max(s_1, s_2) \le 0.20$).
+10. **Subtle Faults (Appendix A.4, A.6):** Defined strictly from source ranges specified in Appendix A.4 (gain error $g \in [0.90, 0.95] \cup [1.05, 1.10]$).
+11. **Test Set Stride Split (Appendix A.1):** 150 test scenarios at full resolution (stride 1); remaining 150 test scenarios at stride 5 (matching train/val).

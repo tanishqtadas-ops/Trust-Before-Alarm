@@ -75,9 +75,9 @@ temperature_profile:
     random_affine_prob: 0.15                 # Appendix A.2: 15% random affine
     affine_multiplier_min: 0.5               # Appendix A.2: multiplier log-uniform 0.5 to 3 (min)
     affine_multiplier_max: 3.0               # Appendix A.2: multiplier log-uniform 0.5 to 3 (max)
-    affine_offset_min: -10.0                 # Decision 1: implementation choice uniform [-10, 10] C
-    affine_offset_max: 10.0                  # Decision 1: implementation choice uniform [-10, 10] C
-    affine_offset_distribution: "uniform"    # Decision 1: implementation choice
+    affine_offset_min: -10.0                 # Decision 1 (ENG assumption, not official PS parameter): uniform [-10, 10] C
+    affine_offset_max: 10.0                  # Decision 1 (ENG assumption, not official PS parameter): uniform [-10, 10] C
+    affine_offset_distribution: "uniform"    # Decision 1 (ENG assumption, not official PS parameter): uniform distribution
 
 genuine_events:
   count_poisson_mean: 1.2                    # Appendix A.3: Poisson mean 1.2
@@ -251,6 +251,12 @@ difficulty_tiers:
     max_types_per_sensor: 2                  # Appendix A.6: up to 2 fault types each
   hard:
     prob: 0.30                               # Appendix A.6: HARD 30%
+    small_group_sensor_count: 4              # Decision 2: "small group" means exactly 4 sensors
+    no_clear_majority_cluster_max_fraction: 0.50 # Decision 3: no cluster contains > 50% of sensors (50/50 split qualifies)
+    sensor_near_bounds:
+      sigma_k_multiplier: 3.0                # Decision 4: within max(3 x sigma_k, 2.0 C) of boundary
+      fixed_margin_celsius: 2.0              # Decision 4: within max(3 x sigma_k, 2.0 C) of boundary
+      check_canonical_celsius: true          # Decision 4: check performed in canonical Celsius before unit scaling
     mechanisms:                              # Appendix A.6: Hard mechanisms (categorical only)
       - "local_event"
       - "fault_during_event"
