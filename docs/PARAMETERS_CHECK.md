@@ -324,3 +324,35 @@
 | `pass_marks.pm8_rank_correlation_trust_health_min` | `0.75` | App C | "rank correlation at least 0.75" |
 | `pass_marks.pm9_median_detection_delay_max_steps` | `15` | App C | "median detection delay at most 15 readings" |
 | `pass_marks.pm9_fault_size_min_sigma` | `5.0` | App C | "for faults above 5 sigma" |
+
+---
+
+## 5. Audit Review & Parameter Analysis
+
+### 5.1 Categorical Specifications (Identified for Explicit Inclusion)
+The following categorical rules from Appendix A must be formally maintained in configuration rather than hard-coded into simulation logic:
+
+* **Allowed Fault Pairs (Appendix A.5):**
+  `spike+drift`, `spike+noise`, `spike+gain`, `drift+noise`, `drift+gain`, `gain+noise`, `dropout with anything`, `degradation+spike`, `degradation+gain`.
+* **Forbidden Fault Pairs (Appendix A.5):**
+  `frozen with spike/gain/noise/drift`; `degradation with drift/noise/dropout`.
+* **HARD-Tier Mechanisms (Appendix A.6):**
+  `local_event`, `fault_during_event`, `subtle_fault`, `shared_cause_pair`, `faulty_fraction_at_cap_small_group`, `no_clear_majority`, `sensor_near_bounds`.
+
+### 5.2 Specific Investigation Findings
+1. **Random Affine Offset Range / Distribution (Appendix A.2):**
+   * *Status:* Undefined in specification.
+   * *Observation:* Appendix A.2 states `multiplier log-uniform 0.5 to 3, random offset` without providing minimum/maximum bounds or distribution for the additive offset.
+2. **Sustained Environmental Event Hold Duration / Termination (Appendix A.3):**
+   * *Status:* Undefined in specification.
+   * *Observation:* Appendix A.3 specifies `sustained rise 5 to 20 min then hold`. It does not define how long the hold lasts or if it terminates before step 1920.
+3. **Ground-Truth `sensor_untrusted` Label Definition (Appendix A.4, A.7):**
+   * *Status:* Ambiguous across fault modes.
+   * *Observation:* Explicit definition is provided for slow degradation (`d >= 0.15`) and active spike window (`samples + 4 steps`), but the exact mapping for other fault modes (offset drift, gain error, frozen, high noise, dropout) relative to severity or active episode is not unified.
+4. **Exact Status Boundaries at Trust Score 0.8 and 0.5 (Appendix A.11):**
+   * *Status:* Boundary closure unspecified.
+   * *Observation:* Spec states `above 0.8 HEALTHY, 0.5 to 0.8 WATCH, below 0.5 UNRELIABLE`. Needs confirmation on boundary inclusivity ($T = 0.8000$ and $T = 0.5000$).
+5. **Simultaneous Fault Cap vs Zero-Fault Scenarios (Appendix A.1 vs A.5):**
+   * *Status:* Clarification required.
+   * *Observation:* Appendix A.1 formula $\max(1, \lfloor 0.4 \times n \rfloor)$ acts as an upper-bound cap on simultaneous faults. It must not override the 15% zero-fault healthy scenario allocation from Appendix A.5.
+

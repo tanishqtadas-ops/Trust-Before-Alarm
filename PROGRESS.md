@@ -199,6 +199,13 @@ Build in this order; three screens only.
 
 - Final pass marks confirmation (Appendix C is the draft).
 - Who owns which phase. Whether to attempt stretch items. Whether to publish a public demo link.
+- **Random affine offset range/distribution (Appendix A.2):** Range and distribution of the additive offset in unit scaling (spec states only "random offset").
+- **Sustained event hold duration (Appendix A.3):** Whether "sustained rise 5 to 20 min then hold" holds indefinitely until scenario end (step 1920) or terminates after a specific duration.
+- **Ground-truth `sensor_untrusted` label definition (Appendix A.4, A.7):** Exact mathematical/logical condition across all fault modes (active episode vs severity threshold vs true health drop < 0.8).
+- **Status boundary inclusivity at trust scores 0.8 and 0.5 (Appendix A.11):** Exact boundary closure for HEALTHY ($T \ge 0.8$ vs $> 0.8$), WATCH, and UNRELIABLE ($T < 0.5$ vs $\le 0.5$).
+- **Simultaneous fault cap in healthy scenarios (Appendix A.1 vs A.5):** Confirming that $\max(1, \lfloor 0.4 \times n \rfloor)$ is strictly an upper-bound cap when faults are injected and does not override the 15% zero-fault scenario allocation.
+- **Definition of "similar size" for shared-cause pairs (Appendix A.5):** Numeric relative tolerance or percentage for shared-cause fault sizing.
+- **Definition of subtle faults for non-gain types in HARD tier (Appendix A.6):** Numeric thresholds for subtle spike, drift, noise.
 
 ## 7. LOG (newest first; one short entry per task)
 
