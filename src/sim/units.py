@@ -170,9 +170,9 @@ def sample_unit_scaler(
     else:
         generator = rng
 
-    c_prob = float(unit_scaling_config.get("celsius_prob", 0.70))
-    f_prob = float(unit_scaling_config.get("fahrenheit_prob", 0.15))
-    a_prob = float(unit_scaling_config.get("random_affine_prob", 0.15))
+    c_prob = float(unit_scaling_config["celsius_prob"])
+    f_prob = float(unit_scaling_config["fahrenheit_prob"])
+    a_prob = float(unit_scaling_config["random_affine_prob"])
 
     total_prob = c_prob + f_prob + a_prob
     if not np.isclose(total_prob, 1.0, atol=1e-5):

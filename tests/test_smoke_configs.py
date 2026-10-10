@@ -53,6 +53,9 @@ def test_smoke_load_configs():
     gen_a = configs["generator_a"]
     assert gen_a["structure"]["total_scenarios"] == 1500
     assert gen_a["structure"]["sampling_rate_minutes"] == 1
+    assert gen_a["temperature_profile"]["daily_cycle"]["period_minutes"] == 1440
+    assert gen_a["temperature_profile"]["daily_cycle"]["phase_min_rad"] == 0.0
+    assert gen_a["temperature_profile"]["daily_cycle"]["phase_max_rad"] == 6.283185307179586
     assert gen_a["temperature_profile"]["bounds"]["environment_clip_min"] == -5.0
     assert gen_a["genuine_events"]["count_poisson_mean"] == 1.2
     assert gen_a["faults"]["spike"]["size_sigma_max"] == 40.0

@@ -43,6 +43,8 @@ temperature_profile:
     zero_amplitude_prob: 0.20                # Appendix A.2: 20% of scenarios zero
     period_hours: 24                         # Appendix A.2: period 24 h
     period_minutes: 1440                     # Appendix A.2: period 24 h (1,440 minutes)
+    phase_min_rad: 0.0                       # Decision 12 (implementation choice): random phase standard full-cycle [0, 2pi) rad
+    phase_max_rad: 6.283185307179586         # Decision 12 (implementation choice): 2 * pi radians (6.283185307179586)
   slow_wander:
     std_min: 0.2                             # Appendix A.2: std 0.2 to 0.8 C (min)
     std_max: 0.8                             # Appendix A.2: std 0.2 to 0.8 C (max)

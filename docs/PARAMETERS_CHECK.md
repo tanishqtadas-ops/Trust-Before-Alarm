@@ -48,6 +48,8 @@
 | `temperature_profile.daily_cycle.zero_amplitude_prob` | `0.20` | A.2 | "20% of scenarios zero" |
 | `temperature_profile.daily_cycle.period_hours` | `24` | A.2 | "period 24 h" |
 | `temperature_profile.daily_cycle.period_minutes` | `1440` | A.2 | "period 24 h (1,440 minutes)" |
+| `temperature_profile.daily_cycle.phase_min_rad` | `0.0` | Decision 12 | "Implementation interpretation of 'random phase' in Appendix A.2 as standard full-cycle [0, 2pi) rad" |
+| `temperature_profile.daily_cycle.phase_max_rad` | `6.283185307179586` | Decision 12 | "Implementation interpretation of 'random phase' in Appendix A.2 as standard full-cycle [0, 2pi) rad (2*pi)" |
 | `temperature_profile.slow_wander.std_min` | `0.2` | A.2 | "Slow wander: std 0.2 to 0.8 C" |
 | `temperature_profile.slow_wander.std_max` | `0.8` | A.2 | "Slow wander: std 0.2 to 0.8 C" |
 | `temperature_profile.slow_wander.correlation_time_min` | `120` | A.2 | "correlation time 120 to 360 min" |
@@ -360,3 +362,5 @@
 9. **Decision 9 — Shared-Cause Similarity (Appendix A.5):** Defined as within $\pm 20\%$ relative tolerance on normalized fault severity ($|s_1 - s_2| / \max(s_1, s_2) \le 0.20$).
 10. **Decision 10 — Subtle Faults (Appendix A.4, A.6):** Defined strictly from source ranges specified in Appendix A.4 (gain error $g \in [0.90, 0.95] \cup [1.05, 1.10]$).
 11. **Decision 11 — Test Set Stride Split (Appendix A.1):** 150 test scenarios at full resolution (stride 1); remaining 150 test scenarios at stride 5 (matching train/val).
+12. **Decision 12 — Daily Cycle Phase Interval (Appendix A.2):** Range $[0, 2\pi)$ radians ($[0.0, 6.283185307179586]$), Uniform distribution. Documented as the implementation interpretation of "random phase" in Appendix A.2, not as a numerical range explicitly stated by the original specification.
+

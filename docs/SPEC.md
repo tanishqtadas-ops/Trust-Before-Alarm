@@ -54,3 +54,5 @@ Sources: Official dataset (if released) | Generator A (dev) | Generator B (robus
 9. **Decision 9 — Shared-Cause Severity Similarity (Appendix A.5):** Defined as within $\pm 20\%$ relative tolerance on normalized fault severity ($|s_1 - s_2| / \max(s_1, s_2) \le 0.20$).
 10. **Decision 10 — Subtle Faults (Appendix A.4, A.6):** Defined strictly from ranges specified in the source (subtle gain error $g \in [0.90, 0.95] \cup [1.05, 1.10]$).
 11. **Decision 11 — Test Set Stride Split (Appendix A.1):** 150 test scenarios at full resolution (stride 1); remaining 150 test scenarios at stride 5 (matching train/val).
+12. **Decision 12 — Daily Cycle Phase Interval (Appendix A.2):** Range $[0, 2\pi)$ radians ($[0.0, 6.283185307179586]$), Uniform distribution. Documented as the implementation interpretation of "random phase" in Appendix A.2, not as a numerical range explicitly stated by the original specification.
+

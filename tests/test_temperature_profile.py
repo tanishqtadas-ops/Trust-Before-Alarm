@@ -163,11 +163,13 @@ def test_temperature_profile_init_matches_config():
     assert profile.base_level_min == 2.0
     assert profile.base_level_max == 38.0
 
-    # Daily cycle (A.2: amplitude 0.5 to 4 C, 20% zero, 24h)
+    # Daily cycle (A.2: amplitude 0.5 to 4 C, 20% zero, 24h, Decision 12: phase [0, 2pi) rad)
     assert profile.daily_cycle_amplitude_min == 0.5
     assert profile.daily_cycle_amplitude_max == 4.0
     assert profile.daily_cycle_zero_amplitude_prob == 0.20
     assert profile.daily_cycle_period_minutes == 1440.0
+    assert profile.daily_cycle_phase_min == 0.0
+    assert profile.daily_cycle_phase_max == 6.283185307179586
 
     # Slow wander (A.2: std 0.2 to 0.8 C, tau 120 to 360 min, 5-step MA)
     assert profile.slow_wander_std_min == 0.2
@@ -364,6 +366,8 @@ def test_temperature_profile_custom_config():
             "amplitude_max": 2.0,
             "zero_amplitude_prob": 0.0,
             "period_minutes": 1440,
+            "phase_min_rad": 0.0,
+            "phase_max_rad": 6.283185307179586,
         },
         "slow_wander": {
             "std_min": 0.3,
@@ -412,6 +416,93 @@ def test_temperature_profile_custom_config():
     assert 10.0 <= params.base_level <= 20.0
     assert params.daily_cycle_has_cycle is True
     assert params.unit_scaler.scale_type == "celsius"
+
+
+def test_configured_period_and_phase_bounds_used():
+    """Verify that custom configured period and phase bounds are strictly respected by TemperatureProfile."""
+    cfg = {
+        "base_level_min": 20.0,
+        "base_level_max": 25.0,
+        "daily_cycle": {
+            "amplitude_min": 1.0,
+            "amplitude_max": 2.0,
+            "zero_amplitude_prob": 0.0,
+            "period_minutes": 720.0,  # 12-hour custom period
+            "phase_min_rad": 1.5,     # Custom phase bounds
+            "phase_max_rad": 2.5,
+        },
+        "slow_wander": {
+            "std_min": 0.2,
+            "std_max": 0.5,
+            "correlation_time_min": 120,
+            "correlation_time_max": 240,
+            "moving_average_steps": 5,
+        },
+        "sensor_noise": {
+            "sigma_k_min": 0.1,
+            "sigma_k_max": 0.2,
+            "correlated_sensors_fraction": 0.0,
+            "correlation_rho_min": 0.2,
+            "correlation_rho_max": 0.5,
+        },
+        "static_offset_min": -0.5,
+        "static_offset_max": 0.5,
+        "response_lag": {
+            "time_constant_min": 0.0,
+            "time_constant_max": 2.0,
+            "zero_lag_fraction": 0.5,
+        },
+        "quantisation": {
+            "values": [0.05],
+            "probabilities": [1.0],
+        },
+        "bounds": {
+            "environment_clip_min": -5.0,
+            "environment_clip_max": 50.0,
+            "sensor_clip_min": -10.0,
+            "sensor_clip_max": 60.0,
+        },
+        "unit_scaling": {
+            "celsius_prob": 1.0,
+            "fahrenheit_prob": 0.0,
+            "random_affine_prob": 0.0,
+            "affine_multiplier_min": 0.5,
+            "affine_multiplier_max": 3.0,
+            "affine_offset_min": -10.0,
+            "affine_offset_max": 10.0,
+        },
+    }
+
+    profile = TemperatureProfile(cfg)
+    assert profile.daily_cycle_period_minutes == 720.0
+    assert profile.daily_cycle_phase_min == 1.5
+    assert profile.daily_cycle_phase_max == 2.5
+
+    # Sample multiple scenarios and verify phase strictly inside [1.5, 2.5] and period == 720.0
+    for seed in range(50):
+        params = profile.sample_scenario_params(seed=seed)
+        assert params.daily_cycle_period_minutes == 720.0
+        assert 1.5 <= params.daily_cycle_phase <= 2.5
+
+
+def test_missing_period_or_phase_bounds_raises_key_error():
+    """Verify that omitting required period or phase bounds raises KeyError (no hard-coded fallbacks)."""
+    base_cfg = load_yaml(get_config_dir() / "generator_a.yaml")["temperature_profile"]
+
+    # Missing period
+    bad_dc_period = dict(base_cfg)
+    bad_dc_period["daily_cycle"] = dict(base_cfg["daily_cycle"])
+    del bad_dc_period["daily_cycle"]["period_minutes"]
+    del bad_dc_period["daily_cycle"]["period_hours"]
+    with pytest.raises(KeyError, match="period_minutes"):
+        TemperatureProfile(bad_dc_period)
+
+    # Missing phase bounds
+    bad_dc_phase = dict(base_cfg)
+    bad_dc_phase["daily_cycle"] = dict(base_cfg["daily_cycle"])
+    del bad_dc_phase["daily_cycle"]["phase_min_rad"]
+    with pytest.raises(KeyError, match="phase_min_rad"):
+        TemperatureProfile(bad_dc_phase)
 
 
 def test_sample_unit_scaler_invalid_prob_sum():

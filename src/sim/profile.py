@@ -146,7 +146,34 @@ class TemperatureProfile(VariableProfile):
         self.daily_cycle_amplitude_min = float(dc["amplitude_min"])
         self.daily_cycle_amplitude_max = float(dc["amplitude_max"])
         self.daily_cycle_zero_amplitude_prob = float(dc["zero_amplitude_prob"])
-        self.daily_cycle_period_minutes = float(dc.get("period_minutes", dc.get("period_hours", 24) * 60))
+
+        # Required period explicit from configuration (no hardcoded fallback)
+        if "period_minutes" in dc:
+            self.daily_cycle_period_minutes = float(dc["period_minutes"])
+        elif "period_hours" in dc:
+            self.daily_cycle_period_minutes = float(dc["period_hours"]) * 60.0
+        else:
+            raise KeyError("daily_cycle configuration must specify 'period_minutes' or 'period_hours'")
+
+        # Configured phase bounds representing standard full-cycle [0, 2pi) rad (Decision 12)
+        if "phase_min_rad" in dc:
+            self.daily_cycle_phase_min = float(dc["phase_min_rad"])
+        elif "phase_min" in dc:
+            self.daily_cycle_phase_min = float(dc["phase_min"])
+        else:
+            raise KeyError("daily_cycle configuration must specify 'phase_min_rad' or 'phase_min'")
+
+        if "phase_max_rad" in dc:
+            self.daily_cycle_phase_max = float(dc["phase_max_rad"])
+        elif "phase_max" in dc:
+            self.daily_cycle_phase_max = float(dc["phase_max"])
+        else:
+            raise KeyError("daily_cycle configuration must specify 'phase_max_rad' or 'phase_max'")
+
+        if self.daily_cycle_phase_min > self.daily_cycle_phase_max:
+            raise ValueError(
+                f"daily_cycle phase_min ({self.daily_cycle_phase_min}) > phase_max ({self.daily_cycle_phase_max})"
+            )
 
         # Slow wander
         sw = cfg["slow_wander"]
@@ -233,7 +260,9 @@ class TemperatureProfile(VariableProfile):
             amplitude = float(gen.uniform(self.daily_cycle_amplitude_min, self.daily_cycle_amplitude_max))
         else:
             amplitude = 0.0
-        phase = float(gen.uniform(0.0, 2.0 * np.pi))
+
+        # Daily cycle phase sampled from configured phase interval (Decision 12)
+        phase = float(gen.uniform(self.daily_cycle_phase_min, self.daily_cycle_phase_max))
 
         # Slow wander
         wander_std = float(gen.uniform(self.slow_wander_std_min, self.slow_wander_std_max))
