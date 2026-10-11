@@ -84,6 +84,20 @@ from src.sim.scenario import (
     simulate_scenario,
 )
 from src.sim.units import UnitScaler, sample_unit_scaler
+from src.sim.strata import (
+    APPROVED_FAULT_PROFILES,
+    ScenarioDescriptor,
+    classify_scenario_stratum,
+    extract_scenario_descriptor,
+    find_shared_cause_fault_type,
+    solve_decision_47_apportionment,
+    apportion_splits,
+    partition_test_subsets,
+)
+from src.sim.dataset import (
+    BatchDatasetGenerator,
+    DatasetReader,
+)
 
 __all__ = [
     "UnitScaler",
@@ -155,4 +169,14 @@ __all__ = [
     "detect_no_clear_majority",
     "detect_sensor_near_bounds",
     "evaluate_hard_mechanisms",
+    "APPROVED_FAULT_PROFILES",
+    "ScenarioDescriptor",
+    "classify_scenario_stratum",
+    "extract_scenario_descriptor",
+    "find_shared_cause_fault_type",
+    "solve_decision_47_apportionment",
+    "apportion_splits",
+    "partition_test_subsets",
+    "BatchDatasetGenerator",
+    "DatasetReader",
 ]

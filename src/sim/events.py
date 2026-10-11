@@ -312,9 +312,12 @@ class EventSeries:
         self,
         scenario_id: str = "scenario_0000",
         sampling_rate_minutes: float = 1.0,
+        stride: int = 1,
     ) -> pd.DataFrame:
         """Export group ground-truth per-step table as specified in Appendix A.7."""
-        timestamps = np.arange(self.total_steps, dtype=np.float64) * sampling_rate_minutes
+        if stride < 1:
+            raise ValueError(f"stride must be >= 1, got {stride}")
+        timestamps = (np.arange(self.total_steps, dtype=np.float64) * sampling_rate_minutes)[::stride]
         cols = [
             "scenario_id", "group_id", "timestamp", "genuine_event",
             "event_below_detectability", "event_id", "event_magnitude_sigma",
@@ -324,12 +327,12 @@ class EventSeries:
             "scenario_id": scenario_id,
             "group_id": self.group_id,
             "timestamp": timestamps,
-            "genuine_event": self.genuine_event,
-            "event_below_detectability": self.event_below_detectability,
-            "event_id": self.active_event_ids,
-            "event_magnitude_sigma": self.event_magnitude_sigma,
-            "true_event_breadth": self.true_event_breadth,
-            "true_group_value": self.true_group_value,
+            "genuine_event": self.genuine_event[::stride],
+            "event_below_detectability": self.event_below_detectability[::stride],
+            "event_id": self.active_event_ids[::stride],
+            "event_magnitude_sigma": self.event_magnitude_sigma[::stride],
+            "true_event_breadth": self.true_event_breadth[::stride],
+            "true_group_value": self.true_group_value[::stride],
         })[cols]
 
     def episodes_to_dataframe(

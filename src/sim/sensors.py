@@ -339,16 +339,22 @@ class SensorStream:
         self,
         scenario_id: str = "scenario_0000",
         group_id: str = "group_00",
+        stride: int = 1,
     ) -> pd.DataFrame:
         """Export per-sensor ground truth table (Appendix A.7 Layer 3)."""
+        if stride < 1:
+            raise ValueError(f"stride must be >= 1, got {stride}")
         if self.fault_series is not None:
             return self.fault_series.to_ground_truth_dataframe(
                 scenario_id=scenario_id,
                 group_id=group_id,
                 timestamps_minutes=self.timestamps_minutes,
                 true_values=self.physical_values,
+                stride=stride,
             )
-        total = self.total_steps
+        ts = self.timestamps_minutes[::stride]
+        tv = self.physical_values[::stride]
+        total = len(ts)
         zeros_i = np.zeros(total, dtype=int)
         zeros_f = np.zeros(total, dtype=float)
         ones_f = np.ones(total, dtype=float)
@@ -356,8 +362,8 @@ class SensorStream:
             "scenario_id": scenario_id,
             "group_id": group_id,
             "sensor_id": self.sensor_id,
-            "timestamp": self.timestamps_minutes,
-            "true_value": self.physical_values,
+            "timestamp": ts,
+            "true_value": tv,
             "sensor_untrusted": zeros_i,
             "f_spike": zeros_i,
             "f_offset_drift": zeros_i,
@@ -444,25 +450,30 @@ class VirtualSensorGroup:
     def to_ground_truth_events_dataframe(
         self,
         scenario_id: str = "scenario_0000",
+        stride: int = 1,
     ) -> pd.DataFrame:
         """Export group-level ground truth events table (Appendix A.7)."""
+        if stride < 1:
+            raise ValueError(f"stride must be >= 1, got {stride}")
         dt = float(self.environment.timestamps_minutes[1] - self.environment.timestamps_minutes[0]) if len(self.environment.timestamps_minutes) > 1 else 1.0
         if self.events is not None:
             return self.events.to_ground_truth_dataframe(
                 scenario_id=scenario_id,
                 sampling_rate_minutes=dt,
+                stride=stride,
             )
-        timestamps = self.environment.timestamps_minutes
+        timestamps = self.environment.timestamps_minutes[::stride]
+        total = len(timestamps)
         return pd.DataFrame({
             "scenario_id": scenario_id,
             "group_id": self.group_id,
             "timestamp": timestamps,
-            "genuine_event": np.zeros(self.total_steps, dtype=int),
-            "event_below_detectability": np.zeros(self.total_steps, dtype=int),
-            "event_id": ["" for _ in range(self.total_steps)],
-            "event_magnitude_sigma": np.zeros(self.total_steps, dtype=float),
-            "true_event_breadth": np.zeros(self.total_steps, dtype=float),
-            "true_group_value": self.environment.values.copy(),
+            "genuine_event": np.zeros(total, dtype=int),
+            "event_below_detectability": np.zeros(total, dtype=int),
+            "event_id": ["" for _ in range(total)],
+            "event_magnitude_sigma": np.zeros(total, dtype=float),
+            "true_event_breadth": np.zeros(total, dtype=float),
+            "true_group_value": self.environment.values[::stride].copy(),
         })
 
     def episodes_to_dataframe(
@@ -482,10 +493,13 @@ class VirtualSensorGroup:
     def to_ground_truth_sensors_dataframe(
         self,
         scenario_id: str = "scenario_0000",
+        stride: int = 1,
     ) -> pd.DataFrame:
         """Export concatenated per-sensor ground truth table across all sensors in the group."""
+        if stride < 1:
+            raise ValueError(f"stride must be >= 1, got {stride}")
         dfs = [
-            stream.to_ground_truth_dataframe(scenario_id=scenario_id, group_id=self.group_id)
+            stream.to_ground_truth_dataframe(scenario_id=scenario_id, group_id=self.group_id, stride=stride)
             for stream in self.sensors.values()
         ]
         return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()

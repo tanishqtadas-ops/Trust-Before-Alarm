@@ -923,25 +923,29 @@ class SensorFaultSeries:
         group_id: str,
         timestamps_minutes: np.ndarray,
         true_values: np.ndarray,
+        stride: int = 1,
     ) -> pd.DataFrame:
         """Export per-sensor per-step ground truth table (Appendix A.7 Layer 3)."""
+        if stride < 1:
+            raise ValueError(f"stride must be >= 1, got {stride}")
+        f_ids = self.get_fault_ids_per_step()
         return pd.DataFrame({
             "scenario_id": scenario_id,
             "group_id": group_id,
             "sensor_id": self.sensor_id,
-            "timestamp": timestamps_minutes,
-            "true_value": true_values,
-            "sensor_untrusted": self.sensor_untrusted.astype(int),
-            "f_spike": self.get_fault_flag(FaultType.SPIKE),
-            "f_offset_drift": self.get_fault_flag(FaultType.OFFSET_DRIFT),
-            "f_gain_error": self.get_fault_flag(FaultType.GAIN_ERROR),
-            "f_frozen": self.get_fault_flag(FaultType.FROZEN),
-            "f_high_noise": self.get_fault_flag(FaultType.HIGH_NOISE),
-            "f_dropout": self.get_fault_flag(FaultType.DROPOUT),
-            "f_slow_degradation": self.get_fault_flag(FaultType.SLOW_DEGRADATION),
-            "fault_severity": self.fault_severity,
-            "true_health": self.true_health,
-            "fault_id": self.get_fault_ids_per_step(),
+            "timestamp": timestamps_minutes[::stride],
+            "true_value": true_values[::stride],
+            "sensor_untrusted": self.sensor_untrusted.astype(int)[::stride],
+            "f_spike": self.get_fault_flag(FaultType.SPIKE)[::stride],
+            "f_offset_drift": self.get_fault_flag(FaultType.OFFSET_DRIFT)[::stride],
+            "f_gain_error": self.get_fault_flag(FaultType.GAIN_ERROR)[::stride],
+            "f_frozen": self.get_fault_flag(FaultType.FROZEN)[::stride],
+            "f_high_noise": self.get_fault_flag(FaultType.HIGH_NOISE)[::stride],
+            "f_dropout": self.get_fault_flag(FaultType.DROPOUT)[::stride],
+            "f_slow_degradation": self.get_fault_flag(FaultType.SLOW_DEGRADATION)[::stride],
+            "fault_severity": self.fault_severity[::stride],
+            "true_health": self.true_health[::stride],
+            "fault_id": f_ids[::stride],
         })
 
     def episodes_to_dataframe(

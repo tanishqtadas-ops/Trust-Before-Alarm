@@ -379,7 +379,11 @@ class VirtualScenario:
             return df[cols]
         return pd.DataFrame(columns=cols)
 
-    def to_ground_truth_sensors_dataframe(self) -> pd.DataFrame:
+    def to_observables_dataframe(self, stride: int = 1) -> pd.DataFrame:
+        """Convenience alias for to_observable_dataframe."""
+        return self.to_observable_dataframe(stride=stride)
+
+    def to_ground_truth_sensors_dataframe(self, stride: int = 1) -> pd.DataFrame:
         """Export per-sensor per-step ground truth table (16 columns strictly).
         
         Columns: scenario_id, group_id, sensor_id, timestamp, true_value,
@@ -387,9 +391,11 @@ class VirtualScenario:
                  f_frozen, f_high_noise, f_dropout, f_slow_degradation,
                  fault_severity, true_health, fault_id
         """
+        if stride < 1:
+            raise ValueError(f"stride must be >= 1, got {stride}")
         dfs = []
         for gid, group in sorted(self.groups.items()):
-            df_g = group.to_ground_truth_sensors_dataframe(scenario_id=self.scenario_id)
+            df_g = group.to_ground_truth_sensors_dataframe(scenario_id=self.scenario_id, stride=stride)
             dfs.append(df_g)
         cols = [
             "scenario_id", "group_id", "sensor_id", "timestamp", "true_value",
@@ -402,16 +408,18 @@ class VirtualScenario:
             return df[cols]
         return pd.DataFrame(columns=cols)
 
-    def to_ground_truth_events_dataframe(self) -> pd.DataFrame:
+    def to_ground_truth_events_dataframe(self, stride: int = 1) -> pd.DataFrame:
         """Export per-group per-step ground truth events table (9 columns strictly).
         
         Columns: scenario_id, group_id, timestamp, genuine_event,
                  event_below_detectability, event_id, event_magnitude_sigma,
                  true_event_breadth, true_group_value
         """
+        if stride < 1:
+            raise ValueError(f"stride must be >= 1, got {stride}")
         dfs = []
         for gid, group in sorted(self.groups.items()):
-            df_g = group.to_ground_truth_events_dataframe(scenario_id=self.scenario_id)
+            df_g = group.to_ground_truth_events_dataframe(scenario_id=self.scenario_id, stride=stride)
             dfs.append(df_g)
         cols = [
             "scenario_id", "group_id", "timestamp", "genuine_event",
