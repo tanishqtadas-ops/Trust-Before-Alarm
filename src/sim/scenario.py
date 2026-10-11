@@ -41,6 +41,7 @@ from src.sim.faults import (
     FaultSimulator,
     FaultType,
     SensorFaultSeries,
+    allocate_faulty_sensors,
     compute_actual_faulty_sensor_count,
     compute_group_cap,
     compute_scenario_cap,
@@ -48,6 +49,8 @@ from src.sim.faults import (
     extract_active_event_steps,
     generate_scenario_faults,
     get_valid_pairs,
+    sample_episode_start_step,
+    sample_fault_type_count,
     sample_fault_types_for_sensor,
     sample_faulty_sensor_candidate_count,
     sample_log_uniform,
@@ -631,6 +634,7 @@ class ScenarioSimulator:
             if verified:
                 scen_modified.target_mechanism = target
                 scen_modified.hard_mechanisms = verified
+                scen_modified.metadata = scen_modified.to_metadata_dict()
                 return scen_modified
 
         # Fail-safe: local_event is algebraically guaranteed
@@ -644,6 +648,7 @@ class ScenarioSimulator:
         )
         scen_safe.target_mechanism = "local_event"
         scen_safe.hard_mechanisms = evaluate_hard_mechanisms(scen_safe)
+        scen_safe.metadata = scen_safe.to_metadata_dict()
         return scen_safe
 
     def _construct_mechanism(
@@ -879,22 +884,49 @@ class ScenarioSimulator:
             )
 
         elif target == "faulty_fraction_at_cap_small_group":
-            # Re-run fault generation ensuring small group gets 1 fault
+            # Re-run fault generation guaranteeing small group (n=4) receives exactly 1 fault
             small_gids = [gid for gid, g in scenario.groups.items() if len(g.sensors) == 4]
             if small_gids:
+                target_gid = small_gids[0]
                 fault_groups = {gid: [s.sensor_id for s in g.sensors.values()] for gid, g in scenario.groups.items()}
                 sensor_sigmas = {s.sensor_id: s.sigma_k for s in all_sensor_params}
-                new_fault_map = generate_scenario_faults(
+                k_curr = max(1, sum(1 for g in scenario.groups.values() for s in g.sensors.values() if s.fault_series and s.fault_series.has_faults))
+                target_sensors = sorted(list(fault_groups[target_gid]))
+                chosen_sensor = str(rng.choice(target_sensors))
+
+                allocated = allocate_faulty_sensors(
+                    k_actual=k_curr,
                     groups=fault_groups,
-                    sensor_sigmas=sensor_sigmas,
-                    clean_physical_trajectories=clean_traj,
-                    events=scenario.events,
-                    total_steps=t_steps,
-                    warmup_steps=w_steps,
-                    config=self.config,
                     rng=rng,
-                    k_candidate=max(1, sum(1 for g in scenario.groups.values() for s in g.sensors.values() if s.fault_series and s.fault_series.has_faults)),
+                    pre_allocated_sensors=[chosen_sensor],
+                    pre_allocated_group=target_gid,
                 )
+                fault_sim = FaultSimulator(config=self.config)
+                valid_triplets = derive_valid_triplets(self.config)
+                valid_pairs = get_valid_pairs(self.config)
+                ev_steps = extract_active_event_steps(scenario.events, w_steps, t_steps) if scenario.events else []
+                episodes_by_sensor: Dict[str, List[FaultEpisode]] = {s.sensor_id: [] for s in all_sensor_params}
+
+                for sid, _ in allocated:
+                    m = min(sample_fault_type_count(self.config, rng), 3)
+                    types = sample_fault_types_for_sensor(m, self.config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs)
+                    for idx, ft_name in enumerate(types):
+                        prec = episodes_by_sensor[sid][-1] if episodes_by_sensor[sid] else None
+                        t_start = sample_episode_start_step(prec, t_steps, w_steps, ev_steps, self.config, rng)
+                        xref = clean_traj[sid][t_start] if sid in clean_traj else 20.0
+                        ep = fault_sim.sample_fault(
+                            FaultType(ft_name), sid, sigma_k=sensor_sigmas[sid],
+                            total_steps=t_steps, warmup_steps=w_steps,
+                            physical_xref=xref, clean_base_value=xref,
+                            rng=rng, fault_id=f"fault_{sid}_{idx}", start_step=t_start,
+                            difficulty_tier="hard",
+                        )
+                        episodes_by_sensor[sid].append(ep)
+
+                new_fault_map = {
+                    sid: SensorFaultSeries(sensor_id=sid, total_steps=t_steps, episodes=episodes_by_sensor[sid])
+                    for sid in [s.sensor_id for s in all_sensor_params]
+                }
                 return self._rebuild_scenario_with_events_and_faults(
                     scenario=scenario,
                     new_events=scenario.events,

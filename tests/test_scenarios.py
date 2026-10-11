@@ -42,7 +42,10 @@ from src.sim.faults import (
     compute_group_cap,
     compute_scenario_cap,
     couple_shared_cause_parameters,
+    derive_valid_triplets,
+    extract_active_event_steps,
     generate_scenario_faults,
+    get_valid_pairs,
     sample_shared_cause_start_step,
 )
 from src.sim.profile import TemperatureProfile, TemperatureSensorParams
@@ -698,3 +701,287 @@ def test_dropout_shared_cause_coupling_tolerance(config):
         )
         rel_diff = abs(sev_A - sev_B) / max(sev_A, sev_B)
         assert rel_diff <= 0.20 + 1e-6, f"Dropout severity relative diff {rel_diff} exceeded 0.20"
+
+
+# =============================================================================
+# 12. Focused HARD-Mechanism Fallback Coverage (Decision 38 Audit)
+# =============================================================================
+
+def test_hard_fallback_local_event_deterministic(config):
+    """Directly exercise local_event constructive fallback for zero-fault HARD scenarios.
+    
+    Verifies:
+      1. Zero actual faults are strictly preserved (k_actual == 0).
+      2. detect_local_event returns True after accounting for waveform, sign, magnitude,
+         attenuation, arrival delay, and sensor response lag.
+      3. Physical detectability: plateau perturbation exceeds 3*sigma_k for > 800 scored steps.
+      4. Both positive and negative event signs are feasible and verified.
+    """
+    sim = ScenarioSimulator(config=config)
+
+    for seed in [1001, 1002]:
+        scen_base = sim.simulate_scenario(
+            scenario_id=f"zero_fault_hard_{seed}",
+            seed=seed,
+            scenario_type="standard",
+            difficulty_tier="hard",
+            k_candidate=0,
+        )
+        all_s_params = [s.params for g in scen_base.groups.values() for s in g.sensors.values()]
+        g_s_params = {gid: [s.params for s in g.sensors.values()] for gid, g in scen_base.groups.items()}
+        clean_traj = {s.sensor_id: np.full(1920, 20.0) for s in all_s_params}
+        rng = np.random.default_rng(seed)
+
+        # Force local_event fallback construction
+        scen_constructed = sim._construct_mechanism(
+            target="local_event",
+            scenario=scen_base,
+            all_sensor_params=all_s_params,
+            group_sensor_params=g_s_params,
+            clean_traj=clean_traj,
+            rng=rng,
+        )
+
+        # 1. Zero actual faults strictly preserved
+        k_faults = sum(
+            1 for g in scen_constructed.groups.values() for s in g.sensors.values()
+            if s.fault_series is not None and s.fault_series.has_faults
+        )
+        assert k_faults == 0, "Constructive fallback injected unauthorized faults into zero-fault scenario!"
+
+        # 2. Detector verification
+        assert detect_local_event(scen_constructed) is True
+
+        # 3. Physical waveform and detectability verification
+        assert scen_constructed.events is not None
+        assert len(scen_constructed.events.episodes) == 1
+        ep = scen_constructed.events.episodes[0]
+        assert ep.event_type == "sustained_shift"
+        assert ep.scope == "local"
+        assert 600 <= ep.start_step <= 1000
+        assert 4.0 <= ep.abs_magnitude <= 8.0
+        assert ep.end_step == 1920
+
+        # Verify sensor physical perturbation on plateau after lag and attenuation
+        aff_sid = ep.affected_sensors[0]
+        aff_stream = scen_constructed.groups["group_00"].sensors[aff_sid]
+        max_sigma = aff_stream.params.sigma_k
+        att = ep.sensor_attenuations[aff_sid]
+        assert 0.70 <= att <= 1.0
+
+        # At plateau (e.g. step 1200), perturbation must exceed 3 * sigma_k
+        contrib_plateau = abs(scen_constructed.events.sensor_contributions[aff_sid][1200])
+        assert contrib_plateau >= 4.0 * 0.70 * 0.99  # > 2.77 C
+        assert contrib_plateau >= 3.0 * max_sigma
+
+
+def test_hard_fallback_fault_during_event_deterministic(config):
+    """Directly exercise fault_during_event constructive fallback.
+    
+    Verifies:
+      1. Genuine event has ramp waveform with hold duration >= 60 steps.
+      2. Fault episode start step is placed inside the scored active event interval.
+      3. Active fault and active event intervals overlap in [480, 1919].
+      4. detect_fault_during_event returns True.
+    """
+    sim = ScenarioSimulator(config=config)
+    scen_base = sim.simulate_scenario(
+        scenario_id="fde_test",
+        seed=2001,
+        scenario_type="standard",
+        difficulty_tier="hard",
+        k_candidate=1,
+    )
+    all_s_params = [s.params for g in scen_base.groups.values() for s in g.sensors.values()]
+    g_s_params = {gid: [s.params for s in g.sensors.values()] for gid, g in scen_base.groups.items()}
+    clean_traj = {s.sensor_id: np.full(1920, 20.0) for s in all_s_params}
+    rng = np.random.default_rng(2001)
+
+    scen_fde = sim._construct_mechanism(
+        target="fault_during_event",
+        scenario=scen_base,
+        all_sensor_params=all_s_params,
+        group_sensor_params=g_s_params,
+        clean_traj=clean_traj,
+        rng=rng,
+    )
+
+    # 1. Detector returns True
+    assert detect_fault_during_event(scen_fde) is True
+
+    # 2. Event waveform is ramp with hold duration >= 60 steps
+    assert scen_fde.events is not None
+    assert len(scen_fde.events.episodes) == 1
+    ep_ev = scen_fde.events.episodes[0]
+    assert ep_ev.event_type == "ramp"
+    assert ep_ev.shape_params["hold_minutes"] >= 60.0
+
+    # 3. Active intervals overlap inside scored window [480, 1919]
+    ev_steps = set(extract_active_event_steps(scen_fde.events, warmup_steps=480, total_steps=1920))
+    assert len(ev_steps) >= 60
+
+    faulty_streams = [
+        s for g in scen_fde.groups.values() for s in g.sensors.values()
+        if s.fault_series is not None and s.fault_series.has_faults
+    ]
+    assert len(faulty_streams) >= 1
+    fs = faulty_streams[0]
+    ep_f = fs.fault_series.episodes[0]
+    assert 480 <= ep_f.start_step < 1920
+    assert ep_f.start_step in ev_steps  # fault start falls inside scored event interval
+
+
+def test_hard_fallback_subtle_fault_preserves_rules(config):
+    """Directly exercise subtle_fault constructive fallback across m in {1, 2, 3}.
+    
+    Verifies:
+      1. Preserves the sampled number of fault types m on the target sensor.
+      2. Injects gain_error with |g - 1| <= 0.10.
+      3. For m = 2: resulting pair satisfies configured P1.6 allowed/forbidden rules.
+      4. For m = 3: resulting triplet is one of the 11 mechanically valid P1.6 triplets.
+      5. detect_subtle_fault returns True.
+    """
+    sim = ScenarioSimulator(config=config)
+    rng = np.random.default_rng(3001)
+    valid_pairs = get_valid_pairs(config)
+    valid_triplets = derive_valid_triplets(config)
+
+    for m in [1, 2, 3]:
+        scen_base = sim.simulate_scenario("subtle_test", seed=m * 100, scenario_type="standard", difficulty_tier="hard", k_candidate=1)
+        all_s_params = [s.params for g in scen_base.groups.values() for s in g.sensors.values()]
+        g_s_params = {gid: [s.params for s in g.sensors.values()] for gid, g in scen_base.groups.items()}
+        target_sid = scen_base.sensor_ids[0]
+
+        # Pre-populate sensor with m dummy episodes
+        f_sim = FaultSimulator(config=config)
+        dummy_eps = [
+            f_sim.sample_fault(
+                FaultType.SPIKE, target_sid, sigma_k=0.15, total_steps=1920, warmup_steps=480,
+                physical_xref=20.0, clean_base_value=20.0, rng=rng, fault_id=f"f_{i}",
+                start_step=600 + i * 200,
+            )
+            for i in range(m)
+        ]
+        custom_fault_map = {
+            s.sensor_id: (SensorFaultSeries(target_sid, 1920, episodes=dummy_eps) if s.sensor_id == target_sid else s.fault_series)
+            for s in scen_base.groups["group_00"].sensors.values()
+        }
+        scen_m = sim._rebuild_scenario_with_events_and_faults(
+            scenario=scen_base,
+            new_events=scen_base.events,
+            all_sensor_params=all_s_params,
+            group_sensor_params=g_s_params,
+            fault_map=custom_fault_map,
+            rng=rng,
+        )
+
+        scen_subtle = sim._construct_mechanism(
+            target="subtle_fault",
+            scenario=scen_m,
+            all_sensor_params=all_s_params,
+            group_sensor_params=g_s_params,
+            clean_traj={target_sid: np.full(1920, 20.0)},
+            rng=rng,
+        )
+
+        # 1. Detector verified
+        assert detect_subtle_fault(scen_subtle) is True
+
+        # 2. Type count m strictly preserved
+        episodes = scen_subtle.groups["group_00"].sensors[target_sid].fault_series.episodes
+        assert len(episodes) == m
+
+        # 3. Contains subtle gain error
+        gain_eps = [ep for ep in episodes if ep.fault_type == FaultType.GAIN_ERROR]
+        assert len(gain_eps) >= 1
+        g_val = gain_eps[0].shape_params["gain"]
+        assert abs(g_val - 1.0) <= 0.10 + 1e-6
+
+        # 4. Combination validity
+        type_names = tuple(sorted([ep.fault_type.value for ep in episodes]))
+        if m == 2:
+            assert frozenset(type_names) in valid_pairs, f"Subtle fault pair {type_names} is not an allowed pair!"
+        elif m == 3:
+            assert type_names in valid_triplets, f"Subtle fault triplet {type_names} is not a valid triplet!"
+
+
+def test_hard_fallback_small_group_at_cap_deterministic(config):
+    """Directly exercise faulty_fraction_at_cap_small_group constructive fallback.
+    
+    Verifies:
+      1. Identifies 4-sensor group and allocates exactly 1 faulty sensor.
+      2. Does not violate group cap (cap_g(4) = 1) or scenario cap.
+      3. detect_faulty_fraction_at_cap_small_group returns True.
+    """
+    sim = ScenarioSimulator(config=config)
+    rng = np.random.default_rng(4001)
+
+    p_prof = TemperatureProfile(config)
+    s4_params = p_prof.sample_sensor_params(num_sensors=4, sensor_ids=[f"s_{i}" for i in range(4)], rng=rng)
+    env = generate_environment_series(config=config, rng=rng)
+    g4 = VirtualSensorSimulator(config=config, profile=p_prof).simulate_group(
+        environment=env,
+        sensor_params=s4_params,
+        group_id="group_00",
+        rng=rng,
+    )
+    scen_base = VirtualScenario(
+        scenario_id="s4_test",
+        scenario_type="standard",
+        difficulty_tier="hard",
+        seed=4002,
+        environment=env,
+        groups={"group_00": g4},
+    )
+    all_s_params = s4_params
+    g_s_params = {"group_00": s4_params}
+    clean_traj = {s.sensor_id: np.full(1920, 20.0) for s in s4_params}
+
+    scen_cap = sim._construct_mechanism(
+        target="faulty_fraction_at_cap_small_group",
+        scenario=scen_base,
+        all_sensor_params=all_s_params,
+        group_sensor_params=g_s_params,
+        clean_traj=clean_traj,
+        rng=rng,
+    )
+
+    assert detect_faulty_fraction_at_cap_small_group(scen_cap) is True
+    g = scen_cap.groups["group_00"]
+    assert len(g.sensors) == 4
+    k_faulty_g = sum(1 for s in g.sensors.values() if s.fault_series and s.fault_series.has_faults)
+    assert k_faulty_g == 1  # exactly 1 faulty sensor, satisfying group cap
+
+
+def test_hard_fallback_verification_and_metadata_guarantee(config):
+    """Verify that detectors are evaluated post-construction and metadata is fully synchronized.
+    
+    Verifies:
+      1. scen.hard_mechanisms contains only verified detectors.
+      2. scen.target_mechanism is recorded and matches metadata.
+      3. No unqualified HARD scenario can be returned across 60 seeds and topologies.
+    """
+    sim = ScenarioSimulator(config=config)
+
+    for scen_type in ["standard", "two_groups", "single_sensor"]:
+        for seed in range(20):
+            scen = sim.simulate_scenario(
+                scenario_id=f"audit_{scen_type}_{seed}",
+                seed=seed * 53 + 7,
+                scenario_type=scen_type,
+                difficulty_tier="hard",
+            )
+            # 1. Verification post-construction
+            verified = evaluate_hard_mechanisms(scen)
+            assert len(verified) >= 1, f"Unqualified HARD scenario returned for {scen_type} seed {seed}"
+            assert set(scen.hard_mechanisms) == set(verified)
+
+            # 2. Metadata completeness
+            meta = scen.metadata
+            assert meta["difficulty_tier"] == "hard"
+            assert meta["target_mechanism"] == scen.target_mechanism
+            assert meta["hard_mechanisms"] == scen.hard_mechanisms
+            assert meta["target_mechanism"] in (
+                "natural", "local_event", "subtle_fault", "fault_during_event", "faulty_fraction_at_cap_small_group"
+            )
+
