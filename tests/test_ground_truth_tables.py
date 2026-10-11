@@ -575,20 +575,31 @@ def test_event_mutual_exclusivity():
 
 
 # =============================================================================
-# 5. Multi-Group Events and Affected Groups Serialization Tests
+# 5. Multi-Group Events and Affected Groups Representation Tests
 # =============================================================================
 
-def test_multi_group_event_affected_groups_serialization():
-    """Verify affected_groups accurately reflects all impacted groups."""
+def test_multi_group_event_affected_groups_representation():
+    """Verify affected_groups is a sorted, comma-separated string covering all impacted groups."""
     sim = ScenarioSimulator()
     scen = sim.simulate_scenario(scenario_id="scen_mg", seed=777, scenario_type="two_groups")
     df_e_ep = scen.to_event_episodes_dataframe()
 
     if len(df_e_ep) > 0:
         for _, row in df_e_ep.iterrows():
+            aff_groups_str = row["affected_groups"]
+            assert isinstance(aff_groups_str, str)
+            # Must NOT be JSON list/dict
+            assert not aff_groups_str.startswith("[") and not aff_groups_str.startswith("{")
+
+            aff_groups = aff_groups_str.split(",")
+            # Must be strictly sorted
+            assert aff_groups == sorted(aff_groups)
+            for gid in aff_groups:
+                assert gid in scen.groups
+
+            # Affected sensors is also a comma-separated string
             aff_sids = row["affected_sensors"].split(",")
-            aff_groups = row["affected_groups"].split(",")
-            # Verify every affected sensor belongs to one of the listed affected groups
+            assert isinstance(row["affected_sensors"], str)
             for sid in aff_sids:
                 found_g = None
                 for gid, g in scen.groups.items():
@@ -596,6 +607,54 @@ def test_multi_group_event_affected_groups_serialization():
                         found_g = gid
                         break
                 assert found_g in aff_groups
+
+            # JSON fields retain deterministic JSON serialization
+            assert isinstance(json.loads(row["sensor_attenuations"]), dict)
+            assert isinstance(json.loads(row["sensor_delays"]), dict)
+            assert isinstance(json.loads(row["shape_params"]), dict)
+
+    # Synthetic verification: multi-group event affecting both groups produces exact "group_00,group_01"
+    all_sids = list(scen.groups["group_00"].sensors.keys()) + list(scen.groups["group_01"].sensors.keys())
+    ep_multi = EventEpisode(
+        event_id="ev_multi",
+        event_type="step_recovery",
+        scope="global",
+        start_step=500,
+        end_step=800,
+        start_time_minutes=500.0,
+        magnitude=4.0,
+        abs_magnitude=4.0,
+        sign=1,
+        affected_sensors=all_sids,
+        sensor_attenuations={s: 1.0 for s in all_sids},
+        sensor_delays={s: 0.0 for s in all_sids},
+        shape_params={"recovery_half_life": 20.0},
+        is_detectable=True,
+    )
+    scen_synthetic = VirtualScenario(
+        scenario_id="scen_synth",
+        seed=1,
+        scenario_type="two_groups",
+        difficulty_tier="medium",
+        environment=scen.environment,
+        groups=scen.groups,
+        events=EventSeries(
+            group_id="global",
+            total_steps=scen.environment.total_steps,
+            episodes=[ep_multi],
+            sensor_contributions={},
+            genuine_event=np.zeros(scen.environment.total_steps, dtype=int),
+            event_below_detectability=np.zeros(scen.environment.total_steps, dtype=int),
+            event_magnitude_sigma=np.zeros(scen.environment.total_steps),
+            true_event_breadth=np.zeros(scen.environment.total_steps),
+            active_event_ids=["" for _ in range(scen.environment.total_steps)],
+            true_group_value=np.zeros(scen.environment.total_steps),
+        ),
+    )
+    df_synth = scen_synthetic.to_event_episodes_dataframe()
+    assert len(df_synth) == 1
+    assert df_synth["affected_groups"].iloc[0] == "group_00,group_01"
+    assert isinstance(df_synth["affected_groups"].iloc[0], str)
 
 
 # =============================================================================
@@ -760,3 +819,31 @@ def test_multi_fault_simultaneous_episodes():
         assert len(ids) >= 2
         # Verify severities and true_health invariant on multi-fault row
         assert np.isclose(row["true_health"], 1.0 - row["fault_severity"])
+
+
+# =============================================================================
+# 10. Scenario Split Defaults and Override Tests
+# =============================================================================
+
+def test_scenario_split_default_and_explicit_override():
+    """Verify default split is 'unassigned' and explicit caller overrides are respected."""
+    sim = ScenarioSimulator()
+    scen = sim.simulate_scenario(scenario_id="scen_split_test", seed=999)
+
+    # 1. Default for to_scenario_record
+    rec_default = scen.to_scenario_record()
+    assert rec_default["split"] == "unassigned"
+
+    # 2. Explicit overrides for to_scenario_record
+    assert scen.to_scenario_record(split="train")["split"] == "train"
+    assert scen.to_scenario_record(split="val")["split"] == "val"
+    assert scen.to_scenario_record(split="test")["split"] == "test"
+
+    # 3. Default for to_scenario_dataframe
+    df_default = scen.to_scenario_dataframe()
+    assert df_default["split"].iloc[0] == "unassigned"
+
+    # 4. Explicit overrides for to_scenario_dataframe
+    assert scen.to_scenario_dataframe(split="train")["split"].iloc[0] == "train"
+    assert scen.to_scenario_dataframe(split="val")["split"].iloc[0] == "val"
+    assert scen.to_scenario_dataframe(split="test")["split"].iloc[0] == "test"
