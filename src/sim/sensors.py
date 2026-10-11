@@ -406,7 +406,7 @@ class VirtualSensorGroup:
         """2D array of canonical Celsius values, shape (num_sensors, total_steps)."""
         return np.array([s.canonical_values for s in self.sensors.values()])
 
-    def to_observable_dataframe(self, scenario_id: str = "scenario_0000") -> pd.DataFrame:
+    def to_observable_dataframe(self, scenario_id: str = "scenario_0000", stride: int = 1) -> pd.DataFrame:
         """Format observable data as a Layer 1 raw table (observable only).
         
         Schema: (scenario_id, group_id, sensor_id, variable_type, timestamp, value)
@@ -414,7 +414,7 @@ class VirtualSensorGroup:
         rows = []
         var_type = self.scenario_params.variable_type
         for sensor_id, stream in self.sensors.items():
-            for ts, val in zip(stream.timestamps_minutes, stream.values):
+            for ts, val in zip(stream.timestamps_minutes[::stride], stream.values[::stride]):
                 rows.append({
                     "scenario_id": scenario_id,
                     "group_id": self.group_id,

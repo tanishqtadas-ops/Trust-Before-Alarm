@@ -989,9 +989,10 @@ class FaultSimulator:
         fault_id: str = "fault_0",
         start_step: Optional[int] = None,
         duration: Optional[int] = None,
+        difficulty_tier: str = "medium",
         **kwargs: Any,
     ) -> FaultEpisode:
-        """Sample and generate a single fault episode of the specified fault type."""
+        """Sample and generate a single fault episode of the specified fault type (Decision 39)."""
         if rng is None:
             rng = np.random.default_rng()
 
@@ -1005,6 +1006,28 @@ class FaultSimulator:
             )
 
         fault_cfg = self.config["faults"]
+
+        # Decision 39: Restricted visibility parameter sampling for EASY tier
+        if difficulty_tier == "easy":
+            tier_cfg = self.config.get("difficulty_tiers", {}).get("easy", {})
+            if fault_type == FaultType.SPIKE and "sp_size_sigma" not in kwargs:
+                min_sp = float(tier_cfg.get("spike_min_sigma", 8.0))
+                max_sp = float(fault_cfg["spike"]["size_sigma_max"])
+                kwargs["sp_size_sigma"] = sample_log_uniform(min_sp, max_sp, rng)
+            elif fault_type == FaultType.OFFSET_DRIFT and "bias_mag_sigma" not in kwargs:
+                min_drift = float(tier_cfg.get("drift_min_sigma", 6.0))
+                max_drift = float(fault_cfg["offset_drift"]["final_bias_sigma_max"])
+                kwargs["bias_mag_sigma"] = sample_log_uniform(min_drift, max_drift, rng)
+            elif fault_type == FaultType.GAIN_ERROR and "gain" not in kwargs:
+                # 50% low [0.55, 0.75] (|g-1| in [0.25, 0.45]), 50% high [1.25, 1.60] (|g-1| in [0.25, 0.60])
+                if rng.random() < 0.5:
+                    kwargs["gain"] = float(rng.uniform(0.55, 0.75))
+                else:
+                    kwargs["gain"] = float(rng.uniform(1.25, 1.60))
+            elif fault_type == FaultType.HIGH_NOISE and "multiplier" not in kwargs:
+                min_noise = float(tier_cfg.get("noise_mult_min", 4.0))
+                max_noise = float(fault_cfg["high_noise"]["multiplier_max"])
+                kwargs["multiplier"] = sample_log_uniform(min_noise, max_noise, rng)
 
         if fault_type == FaultType.SPIKE:
             if duration is None:
@@ -1301,18 +1324,22 @@ def compute_actual_faulty_sensor_count(
     k_candidate: int,
     group_sensor_counts: Sequence[int],
     config: Optional[Dict[str, Any]] = None,
+    tier_cap: Optional[int] = None,
 ) -> int:
-    """Calculate actual faulty sensor count k_actual enforcing both caps (Decision 29).
+    """Calculate actual faulty sensor count k_actual enforcing scenario, group, and tier caps (Decisions 29 & 39).
     
-    k_actual = min(k_candidate, cap_scenario, sum(cap_g))
-    Note: When k_candidate = 0, k_actual = 0 (15% zero-fault preserved).
+    k_actual = min(k_candidate, cap_scenario, sum(cap_g), cap_tier)
+    Note: When k_candidate = 0, k_actual = 0 (15% zero-fault preserved across all tiers).
     """
     if k_candidate <= 0:
         return 0
     total_sensors = sum(group_sensor_counts)
     cap_scenario = compute_scenario_cap(total_sensors)
     sum_group_caps = sum(compute_group_cap(ng) for ng in group_sensor_counts)
-    return min(int(k_candidate), cap_scenario, sum_group_caps)
+    effective_cap = min(cap_scenario, sum_group_caps)
+    if tier_cap is not None:
+        effective_cap = min(effective_cap, int(tier_cap))
+    return min(int(k_candidate), effective_cap)
 
 
 def allocate_faulty_sensors(
@@ -1705,8 +1732,11 @@ def generate_scenario_faults(
     seed: Optional[int] = None,
     k_candidate: Optional[int] = None,
     force_shared_cause: Optional[bool] = None,
+    difficulty_tier: str = "medium",
+    tier_cap: Optional[int] = None,
+    max_types_per_sensor: Optional[int] = None,
 ) -> Dict[str, SensorFaultSeries]:
-    """Generate scenario-wide fault series adhering to all P1.6 constraints."""
+    """Generate scenario-wide fault series adhering to all P1.6 and P1.7 tier constraints."""
     if config is None:
         default_yaml = get_config_dir() / "generator_a.yaml"
         config = load_yaml(default_yaml)
@@ -1748,8 +1778,18 @@ def generate_scenario_faults(
     if k_candidate is None:
         k_candidate = sample_faulty_sensor_candidate_count(config, rng)
 
+    # Determine effective tier cap (Decision 39)
+    if tier_cap is not None:
+        eff_tier_cap = int(tier_cap)
+    elif difficulty_tier == "easy":
+        eff_tier_cap = 1
+    elif difficulty_tier == "medium":
+        eff_tier_cap = 2
+    else:  # "hard"
+        eff_tier_cap = 3
+
     group_counts = [len(groups_ids[gid]) for gid in groups_ids]
-    k_actual = compute_actual_faulty_sensor_count(k_candidate, group_counts, config)
+    k_actual = compute_actual_faulty_sensor_count(k_candidate, group_counts, config, tier_cap=eff_tier_cap)
 
     # If actual count is 0, return empty fault series for all sensors
     if k_actual == 0:
@@ -1757,6 +1797,20 @@ def generate_scenario_faults(
             sid: SensorFaultSeries(sensor_id=sid, total_steps=total_steps, episodes=[])
             for sid in all_sensor_ids
         }
+
+    # Determine max types allowed per sensor in this tier
+    if max_types_per_sensor is not None:
+        eff_max_types = int(max_types_per_sensor)
+    elif difficulty_tier == "easy":
+        eff_max_types = 1
+    elif difficulty_tier == "medium":
+        eff_max_types = 2
+    else:
+        eff_max_types = 3
+
+    def sample_types_count() -> int:
+        raw_m = sample_fault_type_count(config, rng)
+        return min(raw_m, eff_max_types)
 
     # Evaluate shared-cause eligibility (Decision 33)
     eligible_host_groups = [
@@ -1783,8 +1837,8 @@ def generate_scenario_faults(
         chosen_pair = rng.choice(host_sensors, size=2, replace=False)
         s_A, s_B = str(chosen_pair[0]), str(chosen_pair[1])
 
-        m_A = sample_fault_type_count(config, rng)
-        m_B = sample_fault_type_count(config, rng)
+        m_A = sample_types_count()
+        m_B = sample_types_count()
 
         if max(m_A, m_B) == 3:
             triplet_types = sorted(list({t for trip in valid_triplets for t in trip}))
@@ -1815,6 +1869,7 @@ def generate_scenario_faults(
             total_steps=total_steps, warmup_steps=warmup_steps,
             physical_xref=xref_A, clean_base_value=xref_A,
             rng=rng, fault_id=f"fault_{s_A}_0", start_step=t_start_A,
+            difficulty_tier=difficulty_tier,
         )
         episodes_by_sensor[s_A].append(ep_A1)
         for idx in range(1, len(types_A)):
@@ -1825,6 +1880,7 @@ def generate_scenario_faults(
                 total_steps=total_steps, warmup_steps=warmup_steps,
                 physical_xref=xref, clean_base_value=xref,
                 rng=rng, fault_id=f"fault_{s_A}_{idx}", start_step=t_start,
+                difficulty_tier=difficulty_tier,
             )
             episodes_by_sensor[s_A].append(ep)
 
@@ -1837,6 +1893,7 @@ def generate_scenario_faults(
             total_steps=total_steps, warmup_steps=warmup_steps,
             physical_xref=xref_B, clean_base_value=xref_B,
             rng=rng, fault_id=f"fault_{s_B}_0", start_step=t_start_B,
+            difficulty_tier=difficulty_tier,
             **coupled_params,
         )
         episodes_by_sensor[s_B].append(ep_B1)
@@ -1848,6 +1905,7 @@ def generate_scenario_faults(
                 total_steps=total_steps, warmup_steps=warmup_steps,
                 physical_xref=xref, clean_base_value=xref,
                 rng=rng, fault_id=f"fault_{s_B}_{idx}", start_step=t_start,
+                difficulty_tier=difficulty_tier,
             )
             episodes_by_sensor[s_B].append(ep)
 
@@ -1855,7 +1913,7 @@ def generate_scenario_faults(
         for sid, _ in allocated:
             if sid in (s_A, s_B):
                 continue
-            m = sample_fault_type_count(config, rng)
+            m = sample_types_count()
             types = sample_fault_types_for_sensor(m, config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs)
             for idx, ft_name in enumerate(types):
                 prec = episodes_by_sensor[sid][-1] if episodes_by_sensor[sid] else None
@@ -1866,6 +1924,7 @@ def generate_scenario_faults(
                     total_steps=total_steps, warmup_steps=warmup_steps,
                     physical_xref=xref, clean_base_value=xref,
                     rng=rng, fault_id=f"fault_{sid}_{idx}", start_step=t_start,
+                    difficulty_tier=difficulty_tier,
                 )
                 episodes_by_sensor[sid].append(ep)
 
@@ -1873,7 +1932,7 @@ def generate_scenario_faults(
         # Standard allocation without shared-cause
         allocated = allocate_faulty_sensors(k_actual, groups_ids, rng)
         for sid, _ in allocated:
-            m = sample_fault_type_count(config, rng)
+            m = sample_types_count()
             types = sample_fault_types_for_sensor(m, config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs)
             for idx, ft_name in enumerate(types):
                 prec = episodes_by_sensor[sid][-1] if episodes_by_sensor[sid] else None
@@ -1884,6 +1943,7 @@ def generate_scenario_faults(
                     total_steps=total_steps, warmup_steps=warmup_steps,
                     physical_xref=xref, clean_base_value=xref,
                     rng=rng, fault_id=f"fault_{sid}_{idx}", start_step=t_start,
+                    difficulty_tier=difficulty_tier,
                 )
                 episodes_by_sensor[sid].append(ep)
 

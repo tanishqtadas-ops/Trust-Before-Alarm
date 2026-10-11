@@ -395,19 +395,38 @@ class EventGenerator:
         self,
         sensor_ids: Sequence[str],
         rng: np.random.Generator,
+        allowed_scopes: Optional[Sequence[str]] = None,
     ) -> Tuple[str, List[str], Dict[str, float]]:
         """Sample event scope, affected sensors, and per-sensor attenuations.
         
+        Args:
+            sensor_ids: Sequence of sensor IDs.
+            rng: Numpy Generator.
+            allowed_scopes: Optional list of allowed scope names (e.g. ["global"] for EASY tier).
+            
         Returns:
             Tuple of (scope_name, affected_sensor_ids, attenuation_dict).
         """
-        scopes = ["global", "partial", "local"]
-        probs = np.array([
-            self.scope_cfg["global_prob"],
-            self.scope_cfg["partial_prob"],
-            self.scope_cfg["local_prob"],
+        all_scopes = ["global", "partial", "local"]
+        all_probs = np.array([
+            float(self.scope_cfg["global_prob"]),
+            float(self.scope_cfg["partial_prob"]),
+            float(self.scope_cfg["local_prob"]),
         ], dtype=np.float64)
-        probs = probs / np.sum(probs)
+
+        if allowed_scopes is not None:
+            allowed_set = set(allowed_scopes)
+            scopes = [s for s in all_scopes if s in allowed_set]
+            if not scopes:
+                scopes = ["global"]
+                probs = np.array([1.0], dtype=np.float64)
+            else:
+                probs = np.array([all_probs[all_scopes.index(s)] for s in scopes], dtype=np.float64)
+                probs = probs / np.sum(probs)
+        else:
+            scopes = all_scopes
+            probs = all_probs / np.sum(all_probs)
+
         selected_scope = str(rng.choice(scopes, p=probs))
 
         n_sensors = len(sensor_ids)
@@ -425,13 +444,19 @@ class EventGenerator:
                 float(self.scope_cfg["partial_sensors_fraction_min"]),
                 float(self.scope_cfg["partial_sensors_fraction_max"]),
             )
-            k_target = int(np.round(frac * n_sensors))
+            # Decision 37: Explicit half-up rounding floor(frac * N + 0.5)
+            k_target = int(np.floor(frac * n_sensors + 0.5))
             if n_sensors > 1:
                 k_count = min(n_sensors - 1, max(1, k_target))
+                selected_indices = rng.choice(n_sensors, size=k_count, replace=False)
+                affected = [sensor_ids[i] for i in selected_indices]
             else:
-                k_count = 1
-            selected_indices = rng.choice(n_sensors, size=k_count, replace=False)
-            affected = [sensor_ids[i] for i in selected_indices]
+                # When n_sensors == 1: k_target is 0 with 25% prob (frac < 0.5) and 1 with 75% prob (frac >= 0.5)
+                if k_target >= 1:
+                    affected = [sensor_ids[0]]
+                else:
+                    affected = []
+
             att_min = float(self.scope_cfg["partial_attenuation_min"])
             att_max = float(self.scope_cfg["partial_attenuation_max"])
             for s_id in affected:
@@ -566,6 +591,7 @@ class EventGenerator:
         seed: Optional[int] = None,
         group_id: str = "group_00",
         baseline_env_values: Optional[np.ndarray] = None,
+        allowed_scopes: Optional[Sequence[str]] = None,
     ) -> EventSeries:
         """Generate all genuine events and ground-truth masks for a group.
         
@@ -577,6 +603,7 @@ class EventGenerator:
             seed: Optional integer seed.
             group_id: Unique group identifier string.
             baseline_env_values: Optional unperturbed environment values, shape (T,).
+            allowed_scopes: Optional list of allowed scope names (e.g. ["global"] for EASY tier).
             
         Returns:
             EventSeries instance.
@@ -616,6 +643,7 @@ class EventGenerator:
             scope, affected, attenuations = self.sample_scope_and_sensors(
                 sensor_ids=sensor_ids,
                 rng=gen,
+                allowed_scopes=allowed_scopes,
             )
             delays = self.sample_sensor_delays(affected_sensors=affected, rng=gen)
             durations = self.sample_durations(event_type=e_type, rng=gen)

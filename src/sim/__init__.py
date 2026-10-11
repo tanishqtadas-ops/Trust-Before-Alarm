@@ -67,6 +67,22 @@ from src.sim.sensors import (
     generate_missing_mask,
     simulate_sensors,
 )
+from src.sim.scenario import (
+    ScenarioSimulator,
+    VirtualScenario,
+    detect_fault_during_event,
+    detect_faulty_fraction_at_cap_small_group,
+    detect_local_event,
+    detect_no_clear_majority,
+    detect_sensor_near_bounds,
+    detect_shared_cause_pair,
+    detect_subtle_fault,
+    evaluate_hard_mechanisms,
+    sample_difficulty_tier,
+    sample_group_sizes,
+    sample_scenario_type,
+    simulate_scenario,
+)
 from src.sim.units import UnitScaler, sample_unit_scaler
 
 __all__ = [
@@ -125,4 +141,18 @@ __all__ = [
     "generate_group_faults",
     "compute_effective_dropout_gap_length",
     "compute_dropout_theoretical_severity",
+    "VirtualScenario",
+    "ScenarioSimulator",
+    "simulate_scenario",
+    "sample_scenario_type",
+    "sample_group_sizes",
+    "sample_difficulty_tier",
+    "detect_local_event",
+    "detect_fault_during_event",
+    "detect_subtle_fault",
+    "detect_shared_cause_pair",
+    "detect_faulty_fraction_at_cap_small_group",
+    "detect_no_clear_majority",
+    "detect_sensor_near_bounds",
+    "evaluate_hard_mechanisms",
 ]
