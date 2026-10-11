@@ -34,13 +34,15 @@ Engineering Choices (Decisions 22-28):
     10% start at step 0; durations truncated at scenario boundary step 1920 without resampling.
 """
 
+import itertools
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from src.sim.profile import TemperatureSensorParams
 from src.utils.config import get_config_dir, load_yaml
 
 
@@ -64,6 +66,45 @@ def sample_log_uniform(low: float, high: float, rng: np.random.Generator) -> flo
     log_low = float(np.log(low))
     log_high = float(np.log(high))
     return float(np.exp(rng.uniform(log_low, log_high)))
+
+
+def compute_effective_dropout_gap_length(mean_gap_uncapped: float, cap: int = 100) -> float:
+    """Calculate effective expected gap length of capped geometric distribution (Decision 33).
+    
+    X ~ Geometric(p = 1 / mean_gap_uncapped) on {1, 2, ...}, capped at C:
+    E[min(X, C)] = mean_gap_uncapped * [1 - (1 - 1/mean_gap_uncapped)^C]
+    """
+    if mean_gap_uncapped <= 0.0:
+        return 0.0
+    p = 1.0 / mean_gap_uncapped
+    return float(mean_gap_uncapped * (1.0 - (1.0 - p) ** cap))
+
+
+def compute_dropout_theoretical_severity(p_enter: float, mean_gap_uncapped: float, cap: int = 100) -> float:
+    """Calculate theoretical expected normalized episode severity for dropout (Decision 33).
+    
+    In alternating renewal steady state:
+      f_bar = (p_enter * mu_eff) / (1 + p_enter * mu_eff)
+      s_episode = 0.3 + 0.7 * f_bar
+    """
+    mu_eff = compute_effective_dropout_gap_length(mean_gap_uncapped, cap=cap)
+    expected_missing_frac = (p_enter * mu_eff) / (1.0 + p_enter * mu_eff)
+    return float(0.3 + 0.7 * expected_missing_frac)
+
+
+def sample_relative_tolerance_value(
+    base_val: float,
+    val_min: float,
+    val_max: float,
+    tolerance: float,
+    rng: np.random.Generator,
+) -> float:
+    """Sample value within relative tolerance |v - v_base| / max(v, v_base) <= tolerance."""
+    low = max(val_min, base_val * (1.0 - tolerance))
+    high = min(val_max, base_val / (1.0 - tolerance))
+    if low > high:
+        return base_val
+    return float(rng.uniform(low, high))
 
 
 def sample_fault_start_step(
@@ -154,6 +195,8 @@ def generate_spike_fault(
     config: Dict[str, Any],
     rng: np.random.Generator,
     fault_id: str = "fault_0",
+    sp_size_sigma: Optional[float] = None,
+    sign: Optional[float] = None,
 ) -> FaultEpisode:
     """Generate spike fault episode (Appendix A.4, Decision 24).
     
@@ -181,9 +224,9 @@ def generate_spike_fault(
     spike_events = []
     while t < end_step:
         sp_len = int(rng.choice(lengths, p=probs))
-        sp_size_sigma = sample_log_uniform(size_min, size_max, rng)
-        sign = 1.0 if rng.random() < 0.5 else -1.0
-        amp = sign * sp_size_sigma * sigma_k
+        cur_sp_size = sample_log_uniform(size_min, size_max, rng) if sp_size_sigma is None else float(sp_size_sigma)
+        cur_sign = (1.0 if rng.random() < 0.5 else -1.0) if sign is None else float(sign)
+        amp = cur_sign * cur_sp_size * sigma_k
 
         sp_actual_end = min(t + sp_len, end_step)
         if sp_actual_end > t:
@@ -194,14 +237,14 @@ def generate_spike_fault(
         if lbl_end > t:
             label_mask[t:lbl_end] = True
             untrusted_mask[t:lbl_end] = True
-            sp_sev = min(sp_size_sigma / divisor, 1.0)
+            sp_sev = min(cur_sp_size / divisor, 1.0)
             severity[t:lbl_end] = np.maximum(severity[t:lbl_end], sp_sev)
 
         spike_events.append({
             "step": int(t),
             "length": int(sp_len),
-            "size_sigma": float(sp_size_sigma),
-            "sign": int(sign),
+            "size_sigma": float(cur_sp_size),
+            "sign": int(cur_sign),
             "amplitude": float(amp),
         })
 
@@ -240,6 +283,10 @@ def generate_offset_drift_fault(
     fault_id: str = "fault_0",
     ramp_steps: Optional[int] = None,
     plateau_steps: Optional[int] = None,
+    bias_mag_sigma: Optional[float] = None,
+    sign: Optional[float] = None,
+    shape: Optional[str] = None,
+    stepped_steps_k: Optional[int] = None,
 ) -> FaultEpisode:
     """Generate offset drift fault episode (Appendix A.4, Decisions 1, 22, 23).
     
@@ -254,21 +301,27 @@ def generate_offset_drift_fault(
     duration = ramp_steps + plateau_steps
     end_step = min(start_step + duration, total_steps)
 
-    bias_mag_sigma = sample_log_uniform(
-        float(drift_cfg["final_bias_sigma_min"]),
-        float(drift_cfg["final_bias_sigma_max"]),
-        rng,
-    )
-    sign = 1.0 if rng.random() < 0.5 else -1.0
+    if bias_mag_sigma is None:
+        bias_mag_sigma = sample_log_uniform(
+            float(drift_cfg["final_bias_sigma_min"]),
+            float(drift_cfg["final_bias_sigma_max"]),
+            rng,
+        )
+    else:
+        bias_mag_sigma = float(bias_mag_sigma)
+    if sign is None:
+        sign = 1.0 if rng.random() < 0.5 else -1.0
+    else:
+        sign = float(sign)
     final_bias = sign * bias_mag_sigma * sigma_k
 
     # Sample trajectory shape
     shapes = list(drift_cfg["shape_probs"].keys())
     probs = [float(drift_cfg["shape_probs"][s]) for s in shapes]
-    shape = str(rng.choice(shapes, p=probs))
+    if shape is None:
+        shape = str(rng.choice(shapes, p=probs))
 
-    stepped_steps_k: Optional[int] = None
-    if shape == "stepped":
+    if shape == "stepped" and stepped_steps_k is None:
         k_min = int(drift_cfg.get("stepped_steps_min", 3))
         k_max = int(drift_cfg.get("stepped_steps_max", 5))
         stepped_steps_k = int(rng.integers(k_min, k_max + 1))
@@ -342,6 +395,7 @@ def generate_gain_error_fault(
     config: Dict[str, Any],
     rng: np.random.Generator,
     fault_id: str = "fault_0",
+    gain: Optional[float] = None,
 ) -> FaultEpisode:
     """Generate gain error fault episode (Appendix A.4, Decision 5).
     
@@ -349,20 +403,23 @@ def generate_gain_error_fault(
     physical temperature in canonical Celsius at fault onset.
     """
     gain_cfg = config["faults"]["gain_error"]
-    is_standard = rng.random() < float(gain_cfg["standard_prob"])
-
-    if is_standard:
-        ranges = gain_cfg["standard_ranges"]
-        tier = "standard"
+    if gain is not None:
+        g = float(gain)
+        tier = "subtle" if abs(g - 1.0) <= 0.10 else "standard"
     else:
-        ranges = gain_cfg["subtle_ranges"]
-        tier = "subtle"
+        is_standard = rng.random() < float(gain_cfg["standard_prob"])
+        if is_standard:
+            ranges = gain_cfg["standard_ranges"]
+            tier = "standard"
+        else:
+            ranges = gain_cfg["subtle_ranges"]
+            tier = "subtle"
 
-    # Select low vs high range with 50/50 probability
-    if rng.random() < 0.5:
-        g = float(rng.uniform(float(ranges["low"][0]), float(ranges["low"][1])))
-    else:
-        g = float(rng.uniform(float(ranges["high"][0]), float(ranges["high"][1])))
+        # Select low vs high range with 50/50 probability
+        if rng.random() < 0.5:
+            g = float(rng.uniform(float(ranges["low"][0]), float(ranges["low"][1])))
+        else:
+            g = float(rng.uniform(float(ranges["high"][0]), float(ranges["high"][1])))
 
     end_step = min(start_step + duration, total_steps)
     divisor = float(config["severity_formulas"]["gain_divisor"])
@@ -412,6 +469,11 @@ def generate_frozen_fault(
     config: Dict[str, Any],
     rng: np.random.Generator,
     fault_id: str = "fault_0",
+    is_wrong_value: Optional[bool] = None,
+    has_jitter: Optional[bool] = None,
+    offset_mag_sigma: Optional[float] = None,
+    sign: Optional[float] = None,
+    jitter_std_sigma: Optional[float] = None,
 ) -> FaultEpisode:
     """Generate frozen sensor fault episode (Appendix A.4, Decision 3, Decision 25).
     
@@ -420,15 +482,28 @@ def generate_frozen_fault(
     For step 0 start, clean_base_value is initial healthy equilibrium reading at step 0.
     """
     frozen_cfg = config["faults"]["frozen"]
-    is_wrong_value = rng.random() < float(frozen_cfg["frozen_at_wrong_value_prob"])
-    has_jitter = rng.random() < float(frozen_cfg["jitter_prob"])
+    if is_wrong_value is None:
+        is_wrong_value = rng.random() < float(frozen_cfg["frozen_at_wrong_value_prob"])
+    else:
+        is_wrong_value = bool(is_wrong_value)
+
+    if has_jitter is None:
+        has_jitter = rng.random() < float(frozen_cfg["jitter_prob"])
+    else:
+        has_jitter = bool(has_jitter)
 
     if is_wrong_value:
-        offset_mag_sigma = float(rng.uniform(
-            float(frozen_cfg["wrong_value_offset_sigma_min"]),
-            float(frozen_cfg["wrong_value_offset_sigma_max"]),
-        ))
-        sign = 1.0 if rng.random() < 0.5 else -1.0
+        if offset_mag_sigma is None:
+            offset_mag_sigma = float(rng.uniform(
+                float(frozen_cfg["wrong_value_offset_sigma_min"]),
+                float(frozen_cfg["wrong_value_offset_sigma_max"]),
+            ))
+        else:
+            offset_mag_sigma = float(offset_mag_sigma)
+        if sign is None:
+            sign = 1.0 if rng.random() < 0.5 else -1.0
+        else:
+            sign = float(sign)
         offset = sign * offset_mag_sigma * sigma_k
         frozen_val = clean_base_value + offset
         sev_val = float(config["severity_formulas"]["frozen_severity_wrong_value"])
@@ -439,10 +514,13 @@ def generate_frozen_fault(
         sev_val = float(config["severity_formulas"]["frozen_severity_normal"])
 
     if has_jitter:
-        jitter_std_sigma = float(rng.uniform(
-            float(frozen_cfg["jitter_std_sigma_min"]),
-            float(frozen_cfg["jitter_std_sigma_max"]),
-        ))
+        if jitter_std_sigma is None:
+            jitter_std_sigma = float(rng.uniform(
+                float(frozen_cfg["jitter_std_sigma_min"]),
+                float(frozen_cfg["jitter_std_sigma_max"]),
+            ))
+        else:
+            jitter_std_sigma = float(jitter_std_sigma)
         jitter_std = jitter_std_sigma * sigma_k
     else:
         jitter_std_sigma = 0.0
@@ -496,6 +574,8 @@ def generate_high_noise_fault(
     config: Dict[str, Any],
     rng: np.random.Generator,
     fault_id: str = "fault_0",
+    multiplier: Optional[float] = None,
+    is_bursty: Optional[bool] = None,
 ) -> FaultEpisode:
     """Generate high noise fault episode (Appendix A.4).
     
@@ -503,12 +583,18 @@ def generate_high_noise_fault(
     70% continuous, 30% bursty (on/off blocks 5 to 30 steps).
     """
     noise_cfg = config["faults"]["high_noise"]
-    mult = sample_log_uniform(
-        float(noise_cfg["multiplier_min"]),
-        float(noise_cfg["multiplier_max"]),
-        rng,
-    )
-    is_bursty = rng.random() < float(noise_cfg["bursty_prob"])
+    if multiplier is None:
+        mult = sample_log_uniform(
+            float(noise_cfg["multiplier_min"]),
+            float(noise_cfg["multiplier_max"]),
+            rng,
+        )
+    else:
+        mult = float(multiplier)
+    if is_bursty is None:
+        is_bursty = rng.random() < float(noise_cfg["bursty_prob"])
+    else:
+        is_bursty = bool(is_bursty)
 
     end_step = min(start_step + duration, total_steps)
     noise_multiplier = np.ones(total_steps, dtype=np.float64)
@@ -573,6 +659,8 @@ def generate_dropout_fault(
     config: Dict[str, Any],
     rng: np.random.Generator,
     fault_id: str = "fault_0",
+    p_enter: Optional[float] = None,
+    mean_gap: Optional[float] = None,
 ) -> FaultEpisode:
     """Generate dropout fault episode (Appendix A.4).
     
@@ -581,15 +669,21 @@ def generate_dropout_fault(
     Severity: 0.3 + 0.7 * (missing fraction over last 30 steps).
     """
     drop_cfg = config["faults"]["dropout"]
-    p_enter = sample_log_uniform(
-        float(drop_cfg["enter_gap_prob_min"]),
-        float(drop_cfg["enter_gap_prob_max"]),
-        rng,
-    )
-    mean_gap = float(rng.uniform(
-        float(drop_cfg["gap_length_mean_min"]),
-        float(drop_cfg["gap_length_mean_max"]),
-    ))
+    if p_enter is None:
+        p_enter = sample_log_uniform(
+            float(drop_cfg["enter_gap_prob_min"]),
+            float(drop_cfg["enter_gap_prob_max"]),
+            rng,
+        )
+    else:
+        p_enter = float(p_enter)
+    if mean_gap is None:
+        mean_gap = float(rng.uniform(
+            float(drop_cfg["gap_length_mean_min"]),
+            float(drop_cfg["gap_length_mean_max"]),
+        ))
+    else:
+        mean_gap = float(mean_gap)
     cap_gap = int(drop_cfg["gap_length_cap"])
     p_geom = 1.0 / mean_gap
 
@@ -656,6 +750,8 @@ def generate_slow_degradation_fault(
     config: Dict[str, Any],
     rng: np.random.Generator,
     fault_id: str = "fault_0",
+    h_end: Optional[float] = None,
+    sign: Optional[float] = None,
 ) -> FaultEpisode:
     """Generate slow degradation fault episode (Appendix A.4, Decision 4, Decision 26).
     
@@ -666,8 +762,14 @@ def generate_slow_degradation_fault(
     Labeled ONLY as slow_degradation.
     """
     deg_cfg = config["faults"]["slow_degradation"]
-    h_end = float(rng.uniform(float(deg_cfg["h_end_min"]), float(deg_cfg["h_end_max"])))
-    sign = 1.0 if rng.random() < 0.5 else -1.0
+    if h_end is None:
+        h_end = float(rng.uniform(float(deg_cfg["h_end_min"]), float(deg_cfg["h_end_max"])))
+    else:
+        h_end = float(h_end)
+    if sign is None:
+        sign = 1.0 if rng.random() < 0.5 else -1.0
+    else:
+        sign = float(sign)
 
     end_step = min(start_step + duration, total_steps)
     additive_offset = np.zeros(total_steps, dtype=np.float64)
@@ -887,6 +989,7 @@ class FaultSimulator:
         fault_id: str = "fault_0",
         start_step: Optional[int] = None,
         duration: Optional[int] = None,
+        **kwargs: Any,
     ) -> FaultEpisode:
         """Sample and generate a single fault episode of the specified fault type."""
         if rng is None:
@@ -919,6 +1022,7 @@ class FaultSimulator:
                 config=self.config,
                 rng=rng,
                 fault_id=fault_id,
+                **kwargs,
             )
 
         elif fault_type == FaultType.OFFSET_DRIFT:
@@ -930,6 +1034,7 @@ class FaultSimulator:
                 config=self.config,
                 rng=rng,
                 fault_id=fault_id,
+                **kwargs,
             )
 
         elif fault_type == FaultType.GAIN_ERROR:
@@ -947,6 +1052,7 @@ class FaultSimulator:
                 config=self.config,
                 rng=rng,
                 fault_id=fault_id,
+                **kwargs,
             )
 
         elif fault_type == FaultType.FROZEN:
@@ -966,6 +1072,7 @@ class FaultSimulator:
                 config=self.config,
                 rng=rng,
                 fault_id=fault_id,
+                **kwargs,
             )
 
         elif fault_type == FaultType.HIGH_NOISE:
@@ -982,6 +1089,7 @@ class FaultSimulator:
                 config=self.config,
                 rng=rng,
                 fault_id=fault_id,
+                **kwargs,
             )
 
         elif fault_type == FaultType.DROPOUT:
@@ -998,6 +1106,7 @@ class FaultSimulator:
                 config=self.config,
                 rng=rng,
                 fault_id=fault_id,
+                **kwargs,
             )
 
         elif fault_type == FaultType.SLOW_DEGRADATION:
@@ -1015,7 +1124,803 @@ class FaultSimulator:
                 config=self.config,
                 rng=rng,
                 fault_id=fault_id,
+                **kwargs,
             )
 
         else:
             raise ValueError(f"Unknown fault type: {fault_type}")
+
+    def get_valid_pairs(self) -> Set[FrozenSet[str]]:
+        """Return valid 2-fault pairs mechanically derived from configuration."""
+        return get_valid_pairs(self.config)
+
+    def derive_valid_triplets(self) -> List[Tuple[str, str, str]]:
+        """Return valid 3-fault triplets mechanically derived from configuration."""
+        return derive_valid_triplets(self.config)
+
+    def sample_candidate_count(self, rng: Optional[np.random.Generator] = None) -> int:
+        """Sample candidate faulty sensor count k_candidate."""
+        if rng is None:
+            rng = np.random.default_rng()
+        return sample_faulty_sensor_candidate_count(self.config, rng)
+
+    def compute_actual_count(self, k_candidate: int, group_sensor_counts: Sequence[int]) -> int:
+        """Calculate actual faulty sensor count k_actual enforcing both cap levels."""
+        return compute_actual_faulty_sensor_count(k_candidate, group_sensor_counts, self.config)
+
+    def sample_fault_type_count(self, rng: Optional[np.random.Generator] = None) -> int:
+        """Sample number of fault types for a sensor (1, 2, or 3)."""
+        if rng is None:
+            rng = np.random.default_rng()
+        return sample_fault_type_count(self.config, rng)
+
+    def sample_fault_types_for_sensor(
+        self,
+        type_count: int,
+        rng: Optional[np.random.Generator] = None,
+        shared_fault_type: Optional[str] = None,
+    ) -> List[str]:
+        """Sample valid fault types for a sensor adhering to allowed/forbidden constraints."""
+        if rng is None:
+            rng = np.random.default_rng()
+        return sample_fault_types_for_sensor(
+            type_count=type_count,
+            config=self.config,
+            rng=rng,
+            shared_fault_type=shared_fault_type,
+        )
+
+    def generate_scenario_faults(
+        self,
+        groups: Dict[str, Sequence[Union[TemperatureSensorParams, str]]],
+        sensor_sigmas: Optional[Dict[str, float]] = None,
+        clean_physical_trajectories: Optional[Dict[str, np.ndarray]] = None,
+        events: Optional[Any] = None,
+        active_event_steps: Optional[Sequence[int]] = None,
+        total_steps: int = 1920,
+        warmup_steps: int = 480,
+        rng: Optional[Union[int, np.random.Generator]] = None,
+        seed: Optional[int] = None,
+        k_candidate: Optional[int] = None,
+        force_shared_cause: Optional[bool] = None,
+    ) -> Dict[str, SensorFaultSeries]:
+        """Generate scenario-wide fault series adhering to all P1.6 constraints."""
+        return generate_scenario_faults(
+            groups=groups,
+            sensor_sigmas=sensor_sigmas,
+            clean_physical_trajectories=clean_physical_trajectories,
+            events=events,
+            active_event_steps=active_event_steps,
+            total_steps=total_steps,
+            warmup_steps=warmup_steps,
+            config=self.config,
+            rng=rng,
+            seed=seed,
+            k_candidate=k_candidate,
+            force_shared_cause=force_shared_cause,
+        )
+
+    def generate_group_faults(
+        self,
+        sensor_params: Sequence[Union[TemperatureSensorParams, str]],
+        group_id: str = "group_00",
+        sensor_sigmas: Optional[Dict[str, float]] = None,
+        clean_physical_trajectories: Optional[Dict[str, np.ndarray]] = None,
+        events: Optional[Any] = None,
+        active_event_steps: Optional[Sequence[int]] = None,
+        total_steps: int = 1920,
+        warmup_steps: int = 480,
+        rng: Optional[Union[int, np.random.Generator]] = None,
+        seed: Optional[int] = None,
+        k_candidate: Optional[int] = None,
+        force_shared_cause: Optional[bool] = None,
+    ) -> Dict[str, SensorFaultSeries]:
+        """Convenience wrapper for generating faults in a single-group scenario."""
+        return generate_group_faults(
+            sensor_params=sensor_params,
+            group_id=group_id,
+            sensor_sigmas=sensor_sigmas,
+            clean_physical_trajectories=clean_physical_trajectories,
+            events=events,
+            active_event_steps=active_event_steps,
+            total_steps=total_steps,
+            warmup_steps=warmup_steps,
+            config=self.config,
+            rng=rng,
+            seed=seed,
+            k_candidate=k_candidate,
+            force_shared_cause=force_shared_cause,
+        )
+
+
+def get_valid_pairs(config: Dict[str, Any]) -> Set[FrozenSet[str]]:
+    """Derive valid 2-fault pairs mechanically from configuration (Decision 30).
+    
+    A pair is valid if and only if it is in allowed_pairs and NOT in forbidden_pairs.
+    Returns a set of frozensets of size 2.
+    """
+    comb_cfg = config["combinations"]
+    allowed = {frozenset(pair) for pair in comb_cfg["allowed_pairs"]}
+    forbidden = {frozenset(pair) for pair in comb_cfg["forbidden_pairs"]}
+    return allowed - forbidden
+
+
+def derive_valid_triplets(config: Dict[str, Any]) -> List[Tuple[str, str, str]]:
+    """Mechanically derive valid 3-fault triplets from valid pairs (Decision 30).
+    
+    A triplet {a, b, c} is valid iff all three pairwise sub-combinations
+    {a, b}, {b, c}, and {a, c} are valid pairs.
+    Returns sorted list of canonical tuples of length 3.
+    """
+    valid_pairs = get_valid_pairs(config)
+    all_types = sorted([ft.value for ft in FaultType])
+    triplets = []
+    for a, b, c in itertools.combinations(all_types, 3):
+        p1 = frozenset([a, b])
+        p2 = frozenset([b, c])
+        p3 = frozenset([a, c])
+        if p1 in valid_pairs and p2 in valid_pairs and p3 in valid_pairs:
+            triplets.append((a, b, c))
+    return sorted(triplets)
+
+
+def sample_faulty_sensor_candidate_count(
+    config: Dict[str, Any],
+    rng: np.random.Generator,
+) -> int:
+    """Sample candidate count k_candidate of faulty sensors for a scenario (Decision 29).
+    
+    Probabilities from config['combinations']['faulty_sensors_probs']:
+      0: 0.15, 1: 0.40, 2: 0.25, 3_or_more: 0.20
+    Representative count 3 is used for '3_or_more'.
+    """
+    probs_dict = config["combinations"]["faulty_sensors_probs"]
+    keys = [0, 1, 2, 3]
+    probs = [
+        float(probs_dict.get(0, probs_dict.get("0", 0.15))),
+        float(probs_dict.get(1, probs_dict.get("1", 0.40))),
+        float(probs_dict.get(2, probs_dict.get("2", 0.25))),
+        float(probs_dict.get("3_or_more", probs_dict.get(3, probs_dict.get("3", 0.20)))),
+    ]
+    total_p = sum(probs)
+    probs = [p / total_p for p in probs]
+    return int(rng.choice(keys, p=probs))
+
+
+def compute_group_cap(group_sensor_count: int) -> int:
+    """Calculate maximum faulty sensors allowed in a group: max(1, floor(0.4 * n_g))."""
+    return max(1, int(np.floor(0.4 * group_sensor_count)))
+
+
+def compute_scenario_cap(total_sensor_count: int) -> int:
+    """Calculate maximum faulty sensors allowed in a scenario: max(1, floor(0.4 * N))."""
+    return max(1, int(np.floor(0.4 * total_sensor_count)))
+
+
+def compute_actual_faulty_sensor_count(
+    k_candidate: int,
+    group_sensor_counts: Sequence[int],
+    config: Optional[Dict[str, Any]] = None,
+) -> int:
+    """Calculate actual faulty sensor count k_actual enforcing both caps (Decision 29).
+    
+    k_actual = min(k_candidate, cap_scenario, sum(cap_g))
+    Note: When k_candidate = 0, k_actual = 0 (15% zero-fault preserved).
+    """
+    if k_candidate <= 0:
+        return 0
+    total_sensors = sum(group_sensor_counts)
+    cap_scenario = compute_scenario_cap(total_sensors)
+    sum_group_caps = sum(compute_group_cap(ng) for ng in group_sensor_counts)
+    return min(int(k_candidate), cap_scenario, sum_group_caps)
+
+
+def allocate_faulty_sensors(
+    k_actual: int,
+    groups: Dict[str, Sequence[str]],
+    rng: np.random.Generator,
+    pre_allocated_sensors: Optional[Sequence[str]] = None,
+    pre_allocated_group: Optional[str] = None,
+) -> List[Tuple[str, str]]:
+    """Allocate k_actual faulty sensors across groups with capacity constraints (Decision 29).
+    
+    Args:
+        k_actual: Target number of faulty sensors.
+        groups: Mapping from group_id to list of sensor_ids in that group.
+        rng: Numpy Generator.
+        pre_allocated_sensors: Optional pre-allocated sensor IDs (e.g., shared-cause pair).
+        pre_allocated_group: Group ID of the pre-allocated sensors.
+        
+    Returns:
+        List of (sensor_id, group_id) tuples for all allocated faulty sensors.
+    """
+    if k_actual <= 0:
+        return []
+
+    group_caps = {gid: compute_group_cap(len(s_ids)) for gid, s_ids in groups.items()}
+    group_counts = {gid: 0 for gid in groups}
+
+    allocated: List[Tuple[str, str]] = []
+    assigned_sensor_ids = set()
+
+    if pre_allocated_sensors and pre_allocated_group:
+        for sid in pre_allocated_sensors:
+            allocated.append((sid, pre_allocated_group))
+            assigned_sensor_ids.add(sid)
+            group_counts[pre_allocated_group] += 1
+
+    while len(allocated) < k_actual:
+        # Build pool of currently eligible sensors
+        eligible = []
+        for gid, s_ids in groups.items():
+            if group_counts[gid] < group_caps[gid]:
+                for sid in s_ids:
+                    if sid not in assigned_sensor_ids:
+                        eligible.append((sid, gid))
+        if not eligible:
+            break
+        # Uniform draw from currently eligible pool
+        idx = int(rng.integers(0, len(eligible)))
+        chosen_sid, chosen_gid = eligible[idx]
+        allocated.append((chosen_sid, chosen_gid))
+        assigned_sensor_ids.add(chosen_sid)
+        group_counts[chosen_gid] += 1
+
+    return allocated
+
+
+def sample_fault_type_count(
+    config: Dict[str, Any],
+    rng: np.random.Generator,
+) -> int:
+    """Sample number of fault types for a faulty sensor: 1 (65%), 2 (27%), 3 (8%)."""
+    probs_dict = config["combinations"]["types_per_faulty_sensor_probs"]
+    keys = [1, 2, 3]
+    probs = [
+        float(probs_dict.get(1, probs_dict.get("1", 0.65))),
+        float(probs_dict.get(2, probs_dict.get("2", 0.27))),
+        float(probs_dict.get(3, probs_dict.get("3", 0.08))),
+    ]
+    total_p = sum(probs)
+    probs = [p / total_p for p in probs]
+    return int(rng.choice(keys, p=probs))
+
+
+def sample_fault_types_for_sensor(
+    type_count: int,
+    config: Dict[str, Any],
+    rng: np.random.Generator,
+    shared_fault_type: Optional[str] = None,
+    valid_triplets: Optional[List[Tuple[str, str, str]]] = None,
+    valid_pairs: Optional[Set[FrozenSet[str]]] = None,
+) -> List[str]:
+    """Sample valid fault types for a sensor obeying pair/triplet constraints (Decisions 30 & 33).
+    
+    If shared_fault_type is provided, it is placed first in the returned list.
+    """
+    if valid_pairs is None:
+        valid_pairs = get_valid_pairs(config)
+    if valid_triplets is None:
+        valid_triplets = derive_valid_triplets(config)
+
+    all_types = sorted([ft.value for ft in FaultType])
+
+    if type_count == 1:
+        if shared_fault_type is not None:
+            return [shared_fault_type]
+        chosen = str(rng.choice(all_types))
+        return [chosen]
+
+    elif type_count == 2:
+        if shared_fault_type is not None:
+            candidate_pairs = [
+                p for p in valid_pairs if shared_fault_type in p
+            ]
+            if not candidate_pairs:
+                raise ValueError(f"No valid pairs contain shared fault type {shared_fault_type}")
+            chosen_pair = candidate_pairs[int(rng.integers(0, len(candidate_pairs)))]
+            other = next(iter(chosen_pair - {shared_fault_type}))
+            return [shared_fault_type, other]
+        else:
+            pairs_list = sorted([tuple(sorted(list(p))) for p in valid_pairs])
+            chosen = pairs_list[int(rng.integers(0, len(pairs_list)))]
+            chosen_list = list(chosen)
+            rng.shuffle(chosen_list)
+            return chosen_list
+
+    elif type_count == 3:
+        if shared_fault_type is not None:
+            candidate_triplets = [
+                t for t in valid_triplets if shared_fault_type in t
+            ]
+            if not candidate_triplets:
+                raise ValueError(f"No valid triplets contain shared fault type {shared_fault_type}")
+            chosen_trip = candidate_triplets[int(rng.integers(0, len(candidate_triplets)))]
+            others = [x for x in chosen_trip if x != shared_fault_type]
+            rng.shuffle(others)
+            return [shared_fault_type] + others
+        else:
+            chosen = valid_triplets[int(rng.integers(0, len(valid_triplets)))]
+            chosen_list = list(chosen)
+            rng.shuffle(chosen_list)
+            return chosen_list
+
+    else:
+        raise ValueError(f"Unsupported fault type count: {type_count}")
+
+
+def extract_active_event_steps(
+    events: Any,
+    warmup_steps: int = 480,
+    total_steps: int = 1920,
+) -> List[int]:
+    """Extract time steps where a genuine environmental event is physically active (Decision 31)."""
+    if events is None:
+        return []
+
+    # If already a list of ints or steps
+    if isinstance(events, (list, tuple, np.ndarray)) and (len(events) == 0 or isinstance(events[0], (int, np.integer))):
+        if isinstance(events, np.ndarray) and events.dtype == bool:
+            return sorted([int(t) for t in np.where(events)[0] if warmup_steps <= t < total_steps])
+        return sorted([int(s) for s in events if warmup_steps <= s < total_steps])
+
+    # If EventSeries instance
+    steps_set = set()
+    if hasattr(events, "episodes"):
+        for ep in events.episodes:
+            start = getattr(ep, "start_step", 0)
+            end = getattr(ep, "end_step", 0)
+            for t in range(start, end):
+                if warmup_steps <= t < total_steps:
+                    steps_set.add(t)
+
+    if hasattr(events, "genuine_event"):
+        for t in np.where(events.genuine_event)[0]:
+            if warmup_steps <= t < total_steps:
+                steps_set.add(int(t))
+
+    if hasattr(events, "event_below_detectability"):
+        for t in np.where(events.event_below_detectability)[0]:
+            if warmup_steps <= t < total_steps:
+                steps_set.add(int(t))
+
+    return sorted(list(steps_set))
+
+
+def sample_episode_start_step(
+    preceding_episode: Optional[FaultEpisode],
+    total_steps: int,
+    warmup_steps: int,
+    active_event_steps: Sequence[int],
+    config: Dict[str, Any],
+    rng: np.random.Generator,
+) -> int:
+    """Sample start step adhering to staggered windows and legal start regimes (Decisions 31 & 32)."""
+    comb_cfg = config["combinations"]
+    p_event = float(comb_cfg.get("start_inside_active_event_prob", 0.35))
+    p_start0 = float(config["faults"].get("prob_present_from_start", 0.10))
+    p_standard = max(0.0, 1.0 - p_start0 - p_event)
+
+    active_event_post = sorted([s for s in active_event_steps if warmup_steps <= s < total_steps])
+
+    if preceding_episode is None:
+        # First episode on sensor
+        branch = rng.random()
+        if branch < p_start0:
+            return 0
+        elif branch < p_start0 + p_event:
+            if active_event_post:
+                return int(rng.choice(active_event_post))
+            else:
+                return int(rng.integers(warmup_steps, total_steps))
+        else:
+            return int(rng.integers(warmup_steps, total_steps))
+
+    else:
+        # Subsequent episode on same sensor
+        offset_min = int(comb_cfg.get("second_fault_start_offset_min", -100))
+        w_stagger_start = max(0, preceding_episode.start_step + offset_min)
+        w_stagger_end = min(total_steps - 1, preceding_episode.end_step)
+        if w_stagger_start > w_stagger_end:
+            w_stagger_start = min(w_stagger_start, w_stagger_end)
+
+        w_stagger_steps = set(range(w_stagger_start, w_stagger_end + 1))
+        w_post_steps = sorted([s for s in w_stagger_steps if warmup_steps <= s < total_steps])
+        has_zero = (0 in w_stagger_steps)
+
+        # Case A: W_post is empty -> deterministically 0
+        if not w_post_steps:
+            return 0
+
+        c_event = sorted([s for s in w_post_steps if s in active_event_post])
+
+        # Case B: 0 not in W_stagger -> only post-warmup is feasible
+        if not has_zero:
+            if c_event:
+                prob_event_cond = p_event / (p_event + p_standard) if (p_event + p_standard) > 0 else 0.5
+                if rng.random() < prob_event_cond:
+                    return int(rng.choice(c_event))
+                else:
+                    return int(rng.choice(w_post_steps))
+            else:
+                return int(rng.choice(w_post_steps))
+
+        # Case C: Both 0 and W_post are feasible
+        branch = rng.random()
+        if branch < p_start0:
+            return 0
+        elif branch < p_start0 + p_event:
+            if c_event:
+                return int(rng.choice(c_event))
+            else:
+                return int(rng.choice(w_post_steps))
+        else:
+            return int(rng.choice(w_post_steps))
+
+
+def sample_shared_cause_start_step(
+    t_start_A: int,
+    total_steps: int,
+    warmup_steps: int,
+    active_event_steps: Sequence[int],
+    rng: np.random.Generator,
+    max_offset: int = 10,
+) -> int:
+    """Sample start step for the second sensor in a shared-cause pair (Decision 33)."""
+    if t_start_A == 0:
+        return 0
+
+    delta_min = max(-max_offset, warmup_steps - t_start_A)
+    delta_max = min(max_offset, total_steps - 1 - t_start_A)
+    if delta_min > delta_max:
+        return t_start_A
+
+    feasible_deltas = list(range(delta_min, delta_max + 1))
+    event_set = set(active_event_steps)
+
+    if t_start_A in event_set:
+        event_deltas = [d for d in feasible_deltas if (t_start_A + d) in event_set]
+        if event_deltas:
+            chosen_delta = int(rng.choice(event_deltas))
+            return t_start_A + chosen_delta
+
+    chosen_delta = int(rng.choice(feasible_deltas))
+    return t_start_A + chosen_delta
+
+
+def couple_shared_cause_parameters(
+    fault_type: Union[FaultType, str],
+    ep_A: FaultEpisode,
+    sigma_k_A: float,
+    sigma_k_B: float,
+    config: Dict[str, Any],
+    rng: np.random.Generator,
+) -> Dict[str, Any]:
+    """Sample coupled parameters for sensor B within 20% relative tolerance of sensor A (Decision 33)."""
+    comb_cfg = config["combinations"]
+    tolerance = float(comb_cfg.get("shared_cause_severity_relative_tolerance", 0.20))
+    ft_val = fault_type.value if isinstance(fault_type, FaultType) else str(fault_type)
+
+    coupled: Dict[str, Any] = {}
+
+    if ft_val == "spike":
+        sp_cfg = config["faults"]["spike"]
+        s_min = float(sp_cfg["size_sigma_min"])
+        s_max = float(sp_cfg["size_sigma_max"])
+        spikes = ep_A.shape_params.get("spikes", [])
+        base_size = float(spikes[0]["size_sigma"]) if spikes else 10.0
+        base_sign = float(spikes[0]["sign"]) if spikes else 1.0
+
+        coupled["sp_size_sigma"] = sample_relative_tolerance_value(base_size, s_min, s_max, tolerance, rng)
+        coupled["sign"] = base_sign
+
+    elif ft_val == "offset_drift":
+        drift_cfg = config["faults"]["offset_drift"]
+        b_min = float(drift_cfg["final_bias_sigma_min"])
+        b_max = float(drift_cfg["final_bias_sigma_max"])
+        base_bias_sigma = float(ep_A.shape_params["final_bias_sigma"])
+        base_sign = float(ep_A.shape_params["sign"])
+        base_shape = str(ep_A.shape_params["shape"])
+        base_stepped_k = ep_A.shape_params.get("stepped_k")
+
+        coupled["bias_mag_sigma"] = sample_relative_tolerance_value(base_bias_sigma, b_min, b_max, tolerance, rng)
+        coupled["sign"] = base_sign
+        coupled["shape"] = base_shape
+        coupled["stepped_steps_k"] = base_stepped_k
+
+    elif ft_val == "gain_error":
+        g_A = float(ep_A.shape_params["gain"])
+        d_A = abs(g_A - 1.0)
+        d_B = sample_relative_tolerance_value(d_A, 0.05, 0.60, tolerance, rng)
+        if g_A >= 1.0:
+            coupled["gain"] = 1.0 + d_B
+        else:
+            coupled["gain"] = 1.0 - d_B
+
+    elif ft_val == "frozen":
+        frz_cfg = config["faults"]["frozen"]
+        is_wrong = bool(ep_A.shape_params["is_wrong_value"])
+        has_jit = bool(ep_A.shape_params["has_jitter"])
+        coupled["is_wrong_value"] = is_wrong
+        coupled["has_jitter"] = has_jit
+
+        if is_wrong:
+            m_min = float(frz_cfg["wrong_value_offset_sigma_min"])
+            m_max = float(frz_cfg["wrong_value_offset_sigma_max"])
+            base_m = float(ep_A.shape_params["wrong_value_offset_sigma"])
+            base_sign = float(ep_A.shape_params["sign"])
+            coupled["offset_mag_sigma"] = sample_relative_tolerance_value(base_m, m_min, m_max, tolerance, rng)
+            coupled["sign"] = base_sign
+
+        if has_jit:
+            j_min = float(frz_cfg["jitter_std_sigma_min"])
+            j_max = float(frz_cfg["jitter_std_sigma_max"])
+            base_j = float(ep_A.shape_params["jitter_std_sigma"])
+            coupled["jitter_std_sigma"] = sample_relative_tolerance_value(base_j, j_min, j_max, tolerance, rng)
+
+    elif ft_val == "high_noise":
+        noise_cfg = config["faults"]["high_noise"]
+        m_min = float(noise_cfg["multiplier_min"])
+        m_max = float(noise_cfg["multiplier_max"])
+        base_mult = float(ep_A.shape_params["multiplier"])
+        is_bursty = bool(ep_A.shape_params["is_bursty"])
+
+        coupled["multiplier"] = sample_relative_tolerance_value(base_mult, m_min, m_max, tolerance, rng)
+        coupled["is_bursty"] = is_bursty
+
+    elif ft_val == "dropout":
+        drop_cfg = config["faults"]["dropout"]
+        p_min = float(drop_cfg["enter_gap_prob_min"])
+        p_max = float(drop_cfg["enter_gap_prob_max"])
+        g_min = float(drop_cfg["gap_length_mean_min"])
+        g_max = float(drop_cfg["gap_length_mean_max"])
+
+        base_p = float(ep_A.shape_params["enter_gap_prob"])
+        base_gap = float(ep_A.shape_params["mean_gap_length"])
+
+        coupled["p_enter"] = sample_relative_tolerance_value(base_p, p_min, p_max, tolerance, rng)
+        coupled["mean_gap"] = sample_relative_tolerance_value(base_gap, g_min, g_max, tolerance, rng)
+
+    elif ft_val == "slow_degradation":
+        base_final_d = float(ep_A.shape_params["final_damage"])
+        base_sign = float(ep_A.shape_params["sign"])
+
+        coupled_d = sample_relative_tolerance_value(base_final_d, 0.30, 0.90, tolerance, rng)
+        coupled["h_end"] = 1.0 - coupled_d
+        coupled["sign"] = base_sign
+
+    return coupled
+
+
+def generate_scenario_faults(
+    groups: Dict[str, Sequence[Union[TemperatureSensorParams, str]]],
+    sensor_sigmas: Optional[Dict[str, float]] = None,
+    clean_physical_trajectories: Optional[Dict[str, np.ndarray]] = None,
+    events: Optional[Any] = None,
+    active_event_steps: Optional[Sequence[int]] = None,
+    total_steps: int = 1920,
+    warmup_steps: int = 480,
+    config: Optional[Dict[str, Any]] = None,
+    rng: Optional[Union[int, np.random.Generator]] = None,
+    seed: Optional[int] = None,
+    k_candidate: Optional[int] = None,
+    force_shared_cause: Optional[bool] = None,
+) -> Dict[str, SensorFaultSeries]:
+    """Generate scenario-wide fault series adhering to all P1.6 constraints."""
+    if config is None:
+        default_yaml = get_config_dir() / "generator_a.yaml"
+        config = load_yaml(default_yaml)
+
+    if rng is None:
+        rng = np.random.default_rng(seed)
+    elif isinstance(rng, int):
+        rng = np.random.default_rng(rng)
+
+    sigmas = dict(sensor_sigmas) if sensor_sigmas is not None else {}
+    groups_ids: Dict[str, List[str]] = {}
+
+    for gid, items in groups.items():
+        sids = []
+        for item in items:
+            if hasattr(item, "sensor_id"):
+                sid = str(item.sensor_id)
+                if sid not in sigmas:
+                    sigmas[sid] = float(getattr(item, "sigma_k", 0.15))
+            else:
+                sid = str(item)
+                if sid not in sigmas:
+                    sigmas[sid] = 0.15
+            sids.append(sid)
+        groups_ids[gid] = sids
+
+    all_sensor_ids = [sid for sids in groups_ids.values() for sid in sids]
+
+    if active_event_steps is not None:
+        ev_steps = extract_active_event_steps(active_event_steps, warmup_steps, total_steps)
+    elif events is not None:
+        ev_steps = extract_active_event_steps(events, warmup_steps, total_steps)
+    else:
+        ev_steps = []
+
+    valid_triplets = derive_valid_triplets(config)
+    valid_pairs = get_valid_pairs(config)
+
+    if k_candidate is None:
+        k_candidate = sample_faulty_sensor_candidate_count(config, rng)
+
+    group_counts = [len(groups_ids[gid]) for gid in groups_ids]
+    k_actual = compute_actual_faulty_sensor_count(k_candidate, group_counts, config)
+
+    # If actual count is 0, return empty fault series for all sensors
+    if k_actual == 0:
+        return {
+            sid: SensorFaultSeries(sensor_id=sid, total_steps=total_steps, episodes=[])
+            for sid in all_sensor_ids
+        }
+
+    # Evaluate shared-cause eligibility (Decision 33)
+    eligible_host_groups = [
+        gid for gid, sids in groups_ids.items()
+        if compute_group_cap(len(sids)) >= 2
+    ]
+    is_eligible_shared = (k_actual >= 2 and len(eligible_host_groups) > 0)
+
+    if is_eligible_shared:
+        if force_shared_cause is not None:
+            is_shared = bool(force_shared_cause)
+        else:
+            p_shared = float(config["combinations"]["shared_cause_pair_prob"])
+            is_shared = (rng.random() < p_shared)
+    else:
+        is_shared = False
+
+    fault_sim = FaultSimulator(config=config)
+    episodes_by_sensor: Dict[str, List[FaultEpisode]] = {sid: [] for sid in all_sensor_ids}
+
+    if is_shared:
+        host_group = str(rng.choice(eligible_host_groups))
+        host_sensors = sorted(list(groups_ids[host_group]))
+        chosen_pair = rng.choice(host_sensors, size=2, replace=False)
+        s_A, s_B = str(chosen_pair[0]), str(chosen_pair[1])
+
+        m_A = sample_fault_type_count(config, rng)
+        m_B = sample_fault_type_count(config, rng)
+
+        if max(m_A, m_B) == 3:
+            triplet_types = sorted(list({t for trip in valid_triplets for t in trip}))
+            shared_type = str(rng.choice(triplet_types))
+        else:
+            shared_type = str(rng.choice([ft.value for ft in FaultType]))
+
+        types_A = sample_fault_types_for_sensor(
+            m_A, config, rng, shared_fault_type=shared_type,
+            valid_triplets=valid_triplets, valid_pairs=valid_pairs,
+        )
+        types_B = sample_fault_types_for_sensor(
+            m_B, config, rng, shared_fault_type=shared_type,
+            valid_triplets=valid_triplets, valid_pairs=valid_pairs,
+        )
+
+        # Allocate remaining k_actual - 2 sensors
+        allocated = allocate_faulty_sensors(
+            k_actual, groups_ids, rng,
+            pre_allocated_sensors=[s_A, s_B], pre_allocated_group=host_group,
+        )
+
+        # Generate sensor A episodes
+        t_start_A = sample_episode_start_step(None, total_steps, warmup_steps, ev_steps, config, rng)
+        xref_A = clean_physical_trajectories[s_A][t_start_A] if clean_physical_trajectories and s_A in clean_physical_trajectories else 20.0
+        ep_A1 = fault_sim.sample_fault(
+            FaultType(shared_type), s_A, sigma_k=sigmas[s_A],
+            total_steps=total_steps, warmup_steps=warmup_steps,
+            physical_xref=xref_A, clean_base_value=xref_A,
+            rng=rng, fault_id=f"fault_{s_A}_0", start_step=t_start_A,
+        )
+        episodes_by_sensor[s_A].append(ep_A1)
+        for idx in range(1, len(types_A)):
+            t_start = sample_episode_start_step(episodes_by_sensor[s_A][-1], total_steps, warmup_steps, ev_steps, config, rng)
+            xref = clean_physical_trajectories[s_A][t_start] if clean_physical_trajectories and s_A in clean_physical_trajectories else 20.0
+            ep = fault_sim.sample_fault(
+                FaultType(types_A[idx]), s_A, sigma_k=sigmas[s_A],
+                total_steps=total_steps, warmup_steps=warmup_steps,
+                physical_xref=xref, clean_base_value=xref,
+                rng=rng, fault_id=f"fault_{s_A}_{idx}", start_step=t_start,
+            )
+            episodes_by_sensor[s_A].append(ep)
+
+        # Generate sensor B episodes (Episode 1 coupled to ep_A1)
+        t_start_B = sample_shared_cause_start_step(t_start_A, total_steps, warmup_steps, ev_steps, rng)
+        coupled_params = couple_shared_cause_parameters(shared_type, ep_A1, sigmas[s_A], sigmas[s_B], config, rng)
+        xref_B = clean_physical_trajectories[s_B][t_start_B] if clean_physical_trajectories and s_B in clean_physical_trajectories else 20.0
+        ep_B1 = fault_sim.sample_fault(
+            FaultType(shared_type), s_B, sigma_k=sigmas[s_B],
+            total_steps=total_steps, warmup_steps=warmup_steps,
+            physical_xref=xref_B, clean_base_value=xref_B,
+            rng=rng, fault_id=f"fault_{s_B}_0", start_step=t_start_B,
+            **coupled_params,
+        )
+        episodes_by_sensor[s_B].append(ep_B1)
+        for idx in range(1, len(types_B)):
+            t_start = sample_episode_start_step(episodes_by_sensor[s_B][-1], total_steps, warmup_steps, ev_steps, config, rng)
+            xref = clean_physical_trajectories[s_B][t_start] if clean_physical_trajectories and s_B in clean_physical_trajectories else 20.0
+            ep = fault_sim.sample_fault(
+                FaultType(types_B[idx]), s_B, sigma_k=sigmas[s_B],
+                total_steps=total_steps, warmup_steps=warmup_steps,
+                physical_xref=xref, clean_base_value=xref,
+                rng=rng, fault_id=f"fault_{s_B}_{idx}", start_step=t_start,
+            )
+            episodes_by_sensor[s_B].append(ep)
+
+        # Generate episodes for other allocated sensors
+        for sid, _ in allocated:
+            if sid in (s_A, s_B):
+                continue
+            m = sample_fault_type_count(config, rng)
+            types = sample_fault_types_for_sensor(m, config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs)
+            for idx, ft_name in enumerate(types):
+                prec = episodes_by_sensor[sid][-1] if episodes_by_sensor[sid] else None
+                t_start = sample_episode_start_step(prec, total_steps, warmup_steps, ev_steps, config, rng)
+                xref = clean_physical_trajectories[sid][t_start] if clean_physical_trajectories and sid in clean_physical_trajectories else 20.0
+                ep = fault_sim.sample_fault(
+                    FaultType(ft_name), sid, sigma_k=sigmas[sid],
+                    total_steps=total_steps, warmup_steps=warmup_steps,
+                    physical_xref=xref, clean_base_value=xref,
+                    rng=rng, fault_id=f"fault_{sid}_{idx}", start_step=t_start,
+                )
+                episodes_by_sensor[sid].append(ep)
+
+    else:
+        # Standard allocation without shared-cause
+        allocated = allocate_faulty_sensors(k_actual, groups_ids, rng)
+        for sid, _ in allocated:
+            m = sample_fault_type_count(config, rng)
+            types = sample_fault_types_for_sensor(m, config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs)
+            for idx, ft_name in enumerate(types):
+                prec = episodes_by_sensor[sid][-1] if episodes_by_sensor[sid] else None
+                t_start = sample_episode_start_step(prec, total_steps, warmup_steps, ev_steps, config, rng)
+                xref = clean_physical_trajectories[sid][t_start] if clean_physical_trajectories and sid in clean_physical_trajectories else 20.0
+                ep = fault_sim.sample_fault(
+                    FaultType(ft_name), sid, sigma_k=sigmas[sid],
+                    total_steps=total_steps, warmup_steps=warmup_steps,
+                    physical_xref=xref, clean_base_value=xref,
+                    rng=rng, fault_id=f"fault_{sid}_{idx}", start_step=t_start,
+                )
+                episodes_by_sensor[sid].append(ep)
+
+    return {
+        sid: SensorFaultSeries(sensor_id=sid, total_steps=total_steps, episodes=episodes_by_sensor[sid])
+        for sid in all_sensor_ids
+    }
+
+
+def generate_group_faults(
+    sensor_params: Sequence[Union[TemperatureSensorParams, str]],
+    group_id: str = "group_00",
+    sensor_sigmas: Optional[Dict[str, float]] = None,
+    clean_physical_trajectories: Optional[Dict[str, np.ndarray]] = None,
+    events: Optional[Any] = None,
+    active_event_steps: Optional[Sequence[int]] = None,
+    total_steps: int = 1920,
+    warmup_steps: int = 480,
+    config: Optional[Dict[str, Any]] = None,
+    rng: Optional[Union[int, np.random.Generator]] = None,
+    seed: Optional[int] = None,
+    k_candidate: Optional[int] = None,
+    force_shared_cause: Optional[bool] = None,
+) -> Dict[str, SensorFaultSeries]:
+    """Convenience wrapper for generating faults in a single-group scenario."""
+    return generate_scenario_faults(
+        groups={group_id: sensor_params},
+        sensor_sigmas=sensor_sigmas,
+        clean_physical_trajectories=clean_physical_trajectories,
+        events=events,
+        active_event_steps=active_event_steps,
+        total_steps=total_steps,
+        warmup_steps=warmup_steps,
+        config=config,
+        rng=rng,
+        seed=seed,
+        k_candidate=k_candidate,
+        force_shared_cause=force_shared_cause,
+    )
+

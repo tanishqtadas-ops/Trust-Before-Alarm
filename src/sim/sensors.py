@@ -725,6 +725,7 @@ class VirtualSensorSimulator:
         events: Optional[Any] = None,
         generate_events: bool = False,
         fault_map: Optional[Dict[str, Any]] = None,
+        generate_faults: bool = False,
     ) -> VirtualSensorGroup:
         """Simulate all sensors for a co-located group.
         
@@ -738,6 +739,7 @@ class VirtualSensorSimulator:
             events: Optional pre-generated EventSeries instance.
             generate_events: If True and events is None, generates genuine events.
             fault_map: Optional dictionary mapping sensor_id to SensorFaultSeries.
+            generate_faults: If True and fault_map is None, generates group faults automatically.
             
         Returns:
             VirtualSensorGroup instance.
@@ -764,6 +766,31 @@ class VirtualSensorSimulator:
                 baseline_env_values=environment.values,
             )
 
+        # Handle faults
+        active_fault_map = fault_map
+        if active_fault_map is None and generate_faults:
+            from src.sim.faults import generate_group_faults
+            phys_traj = {}
+            for s_param in params_list:
+                if active_events is not None:
+                    c = active_events.sensor_contributions.get(
+                        s_param.sensor_id, np.zeros(environment.total_steps, dtype=np.float64)
+                    )
+                    phys_traj[s_param.sensor_id] = np.clip(environment.values + c, self.env_clip_min, self.env_clip_max)
+                else:
+                    phys_traj[s_param.sensor_id] = environment.values.copy()
+
+            active_fault_map = generate_group_faults(
+                sensor_params=params_list,
+                group_id=group_id,
+                clean_physical_trajectories=phys_traj,
+                events=active_events,
+                total_steps=environment.total_steps,
+                warmup_steps=environment.warmup_steps,
+                config=self.config,
+                rng=gen,
+            )
+
         # Generate group noise (handles 1-factor mild correlation)
         noise_map = generate_group_noise(
             steps=environment.total_steps,
@@ -784,7 +811,7 @@ class VirtualSensorSimulator:
                 contrib = np.zeros(environment.total_steps, dtype=np.float64)
                 phys_vals = environment.values.copy()
 
-            s_fault = fault_map.get(s_param.sensor_id) if fault_map is not None else None
+            s_fault = active_fault_map.get(s_param.sensor_id) if active_fault_map is not None else None
             stream = self.simulate_sensor(
                 env_values=phys_vals,
                 params=s_param,
@@ -821,6 +848,7 @@ def simulate_sensors(
     events: Optional[Any] = None,
     generate_events: bool = False,
     fault_map: Optional[Dict[str, Any]] = None,
+    generate_faults: bool = False,
 ) -> VirtualSensorGroup:
     """Convenience top-level function to simulate virtual sensors.
     
@@ -835,6 +863,7 @@ def simulate_sensors(
         events: Optional pre-generated EventSeries instance.
         generate_events: If True and events is None, generates genuine events.
         fault_map: Optional dictionary mapping sensor_id to SensorFaultSeries.
+        generate_faults: If True and fault_map is None, generates group faults automatically.
         
     Returns:
         VirtualSensorGroup instance.
@@ -850,4 +879,5 @@ def simulate_sensors(
         events=events,
         generate_events=generate_events,
         fault_map=fault_map,
+        generate_faults=generate_faults,
     )
