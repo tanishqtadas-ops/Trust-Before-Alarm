@@ -278,6 +278,7 @@ class SensorStream:
     scored_steps: int
     physical_values: Optional[np.ndarray] = None
     event_contributions: Optional[np.ndarray] = None
+    fault_series: Optional[Any] = None
 
     def __post_init__(self) -> None:
         if self.physical_values is None:
@@ -333,6 +334,42 @@ class SensorStream:
             "params": self.params.to_dict(),
             "unit_scaler": self.unit_scaler.to_dict(),
         }
+
+    def to_ground_truth_dataframe(
+        self,
+        scenario_id: str = "scenario_0000",
+        group_id: str = "group_00",
+    ) -> pd.DataFrame:
+        """Export per-sensor ground truth table (Appendix A.7 Layer 3)."""
+        if self.fault_series is not None:
+            return self.fault_series.to_ground_truth_dataframe(
+                scenario_id=scenario_id,
+                group_id=group_id,
+                timestamps_minutes=self.timestamps_minutes,
+                true_values=self.canonical_clean_values,
+            )
+        total = self.total_steps
+        zeros_i = np.zeros(total, dtype=int)
+        zeros_f = np.zeros(total, dtype=float)
+        ones_f = np.ones(total, dtype=float)
+        return pd.DataFrame({
+            "scenario_id": scenario_id,
+            "group_id": group_id,
+            "sensor_id": self.sensor_id,
+            "timestamp": self.timestamps_minutes,
+            "true_value": self.canonical_clean_values,
+            "sensor_untrusted": zeros_i,
+            "f_spike": zeros_i,
+            "f_offset_drift": zeros_i,
+            "f_gain_error": zeros_i,
+            "f_frozen": zeros_i,
+            "f_high_noise": zeros_i,
+            "f_dropout": zeros_i,
+            "f_slow_degradation": zeros_i,
+            "fault_severity": zeros_f,
+            "true_health": ones_f,
+            "fault_id": ["" for _ in range(total)],
+        })
 
 
 @dataclass(frozen=True)
@@ -442,6 +479,31 @@ class VirtualSensorGroup:
             "is_detectable", "end_step",
         ])
 
+    def to_ground_truth_sensors_dataframe(
+        self,
+        scenario_id: str = "scenario_0000",
+    ) -> pd.DataFrame:
+        """Export concatenated per-sensor ground truth table across all sensors in the group."""
+        dfs = [
+            stream.to_ground_truth_dataframe(scenario_id=scenario_id, group_id=self.group_id)
+            for stream in self.sensors.values()
+        ]
+        return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
+    def fault_episodes_to_dataframe(
+        self,
+        scenario_id: str = "scenario_0000",
+    ) -> pd.DataFrame:
+        """Export fault episodes ground truth table across all sensors in the group."""
+        dfs = []
+        for stream in self.sensors.values():
+            if stream.fault_series is not None:
+                dfs.append(stream.fault_series.episodes_to_dataframe(scenario_id=scenario_id, group_id=self.group_id))
+        return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame(columns=[
+            "scenario_id", "group_id", "sensor_id", "fault_id", "fault_type",
+            "start_step", "end_step", "duration", "max_severity", "shape_params",
+        ])
+
 
 class VirtualSensorSimulator:
     """Simulator for generating virtual sensor readings from true environment series."""
@@ -493,17 +555,22 @@ class VirtualSensorSimulator:
         physical_values: Optional[np.ndarray] = None,
         event_contributions: Optional[np.ndarray] = None,
         baseline_env_values: Optional[np.ndarray] = None,
+        fault_series: Optional[Any] = None,
     ) -> SensorStream:
-        """Simulate an individual sensor from physical values.
+        """Simulate an individual sensor from physical values (Decision 5 & 27).
         
-        Order of physical transformations:
-          1. Response lag (tau)
-          2. Static offset
-          3. Noise (sigma_k, optionally correlated)
-          4. Sensor clipping [-10, 60] C
-          5. Quantisation
-          6. Healthy missing data (NaN)
-          7. Unit scaling (applied last)
+        Order of physical transformations (11 steps):
+          1. True environment (including genuine events & environmental clipping)
+          2. Response lag (tau)
+          3. Healthy static sensor offset
+          4. Gain-error transformation (relative to true physical onset temperature x_ref)
+          5. Additive fault effects (offset drift, spike contribution, slow degradation bias)
+          6. Measurement noise (scaled by high-noise and slow-degradation multipliers)
+          7. Frozen-sensor override (with jitter if applicable)
+          8. Sensor operational clipping [-10, 60] C
+          9. Quantisation in canonical Celsius
+          10. Combine missingness (healthy, dropout, degradation extra) -> NaN
+          11. Unit scaling (applied last)
           
         Args:
             env_values: Physical temperature array before sensor transduction, shape (T,).
@@ -517,6 +584,7 @@ class VirtualSensorSimulator:
             physical_values: Optional physical temperature array (defaults to env_values).
             event_contributions: Optional genuine event contribution Delta T_k(t).
             baseline_env_values: Optional unperturbed baseline environment.
+            fault_series: Optional SensorFaultSeries carrying active fault episodes.
             
         Returns:
             SensorStream instance.
@@ -530,31 +598,76 @@ class VirtualSensorSimulator:
         w_steps = warmup_steps if warmup_steps is not None else self.warmup_steps
         s_steps = scored_steps if scored_steps is not None else self.scored_steps
 
-        # 1. Response lag
+        phys_vals = physical_values if physical_values is not None else env_values.copy()
+        event_contrib = event_contributions if event_contributions is not None else np.zeros_like(env_values)
+        base_env = baseline_env_values if baseline_env_values is not None else env_values.copy()
+
+        # 1. Physical environment series is in env_values / phys_vals
+
+        # 2. Response lag (tau)
         lagged = apply_response_lag(
-            env_values,
+            phys_vals,
             tau=params.response_lag_tau,
             sampling_rate_minutes=self.sampling_rate_minutes,
         )
 
-        # 2. Static offset
+        # 3. Healthy static sensor offset
         with_offset = lagged + params.static_offset
 
-        # 3. Measurement noise
-        if noise is not None:
-            noisy = with_offset + noise
+        # 4. Gain-error transformation (Decision 5): reading = x_ref + g * (x - x_ref)
+        # where x_ref is the true event-adjusted physical value at fault onset (canonical Celsius)
+        if fault_series is not None and getattr(fault_series, "active_gain_episode", None) is not None:
+            gain_ep = fault_series.active_gain_episode
+            g_val = gain_ep.gain if gain_ep.gain is not None else 1.0
+            x_ref = phys_vals[gain_ep.start_step]
+            with_gain = with_offset.copy()
+            g_start = gain_ep.start_step
+            g_end = min(gain_ep.end_step, steps)
+            if g_end > g_start:
+                with_gain[g_start:g_end] = x_ref + g_val * (with_offset[g_start:g_end] - x_ref)
         else:
-            sensor_noise = rng.standard_normal(steps) * params.sigma_k
-            noisy = with_offset + sensor_noise
+            with_gain = with_offset
 
-        # 4. Sensor clipping
+        # 5. Additive fault effects: offset drift, spike contribution, and slow degradation bias
+        if fault_series is not None:
+            with_additive = with_gain + fault_series.combined_additive_offset
+        else:
+            with_additive = with_gain
+
+        # 6. Measurement noise, scaled by high-noise and slow-degradation multipliers
+        if noise is not None:
+            base_noise = noise
+        else:
+            base_noise = rng.standard_normal(steps) * params.sigma_k
+
+        if fault_series is not None:
+            effective_noise = base_noise * fault_series.combined_noise_multiplier
+        else:
+            effective_noise = base_noise
+
+        noisy = with_additive + effective_noise
+
+        # 7. Frozen-sensor override (with configured jitter when applicable)
+        if fault_series is not None and getattr(fault_series, "active_frozen_episode", None) is not None:
+            frozen_ep = fault_series.active_frozen_episode
+            f_start = frozen_ep.start_step
+            f_end = min(frozen_ep.end_step, steps)
+            if f_end > f_start:
+                y_frz = frozen_ep.frozen_value if frozen_ep.frozen_value is not None else with_offset[f_start]
+                if frozen_ep.frozen_jitter_std > 0.0:
+                    jit = rng.standard_normal(f_end - f_start) * frozen_ep.frozen_jitter_std
+                    noisy[f_start:f_end] = y_frz + jit
+                else:
+                    noisy[f_start:f_end] = y_frz
+
+        # 8. Sensor clipping
         clipped = apply_clipping(
             noisy,
             clip_min=self.sensor_clip_min,
             clip_max=self.sensor_clip_max,
         )
 
-        # 5. Quantisation
+        # 9. Quantisation
         quantized = apply_quantisation(
             clipped,
             quantisation_step=params.quantisation_step,
@@ -565,23 +678,23 @@ class VirtualSensorSimulator:
         # Clean canonical values before missing data
         canonical_clean = quantized.copy()
 
-        # 6. Healthy missing data (Decision 14, Decision 15)
-        missing_mask = generate_missing_mask(
+        # 10. Combine healthy missingness, dropout gaps, and slow degradation extra missingness -> NaN
+        healthy_missing = generate_missing_mask(
             steps=steps,
             missing_rate=params.missing_rate,
             burst_max=params.burst_max,
             rng=rng,
         )
+        if fault_series is not None:
+            total_missing_mask = healthy_missing | fault_series.combined_missing_mask
+        else:
+            total_missing_mask = healthy_missing
 
         canonical_values = canonical_clean.copy()
-        canonical_values[missing_mask] = np.nan
+        canonical_values[total_missing_mask] = np.nan
 
-        # 7. Unit scaling applied last (P1.1 principle)
+        # 11. Unit scaling applied last (P1.1 principle)
         observable_values = unit_scaler.apply(canonical_values)
-
-        phys_vals = physical_values if physical_values is not None else env_values.copy()
-        event_contrib = event_contributions if event_contributions is not None else np.zeros_like(env_values)
-        base_env = baseline_env_values if baseline_env_values is not None else env_values.copy()
 
         return SensorStream(
             sensor_id=params.sensor_id,
@@ -589,7 +702,7 @@ class VirtualSensorSimulator:
             canonical_values=canonical_values,
             canonical_clean_values=canonical_clean,
             environmental_values=base_env,
-            missing_mask=missing_mask,
+            missing_mask=total_missing_mask,
             params=params,
             unit_scaler=unit_scaler,
             timestamps_minutes=timestamps,
@@ -598,6 +711,7 @@ class VirtualSensorSimulator:
             scored_steps=s_steps,
             physical_values=phys_vals,
             event_contributions=event_contrib,
+            fault_series=fault_series,
         )
 
     def simulate_group(
@@ -610,6 +724,7 @@ class VirtualSensorSimulator:
         seed: Optional[int] = None,
         events: Optional[Any] = None,
         generate_events: bool = False,
+        fault_map: Optional[Dict[str, Any]] = None,
     ) -> VirtualSensorGroup:
         """Simulate all sensors for a co-located group.
         
@@ -622,6 +737,7 @@ class VirtualSensorSimulator:
             seed: Optional explicit integer seed.
             events: Optional pre-generated EventSeries instance.
             generate_events: If True and events is None, generates genuine events.
+            fault_map: Optional dictionary mapping sensor_id to SensorFaultSeries.
             
         Returns:
             VirtualSensorGroup instance.
@@ -668,6 +784,7 @@ class VirtualSensorSimulator:
                 contrib = np.zeros(environment.total_steps, dtype=np.float64)
                 phys_vals = environment.values.copy()
 
+            s_fault = fault_map.get(s_param.sensor_id) if fault_map is not None else None
             stream = self.simulate_sensor(
                 env_values=phys_vals,
                 params=s_param,
@@ -680,6 +797,7 @@ class VirtualSensorSimulator:
                 physical_values=phys_vals,
                 event_contributions=contrib,
                 baseline_env_values=environment.values,
+                fault_series=s_fault,
             )
             streams[s_param.sensor_id] = stream
 
@@ -702,6 +820,7 @@ def simulate_sensors(
     config: Optional[Dict[str, Any]] = None,
     events: Optional[Any] = None,
     generate_events: bool = False,
+    fault_map: Optional[Dict[str, Any]] = None,
 ) -> VirtualSensorGroup:
     """Convenience top-level function to simulate virtual sensors.
     
@@ -715,6 +834,7 @@ def simulate_sensors(
         config: Optional configuration dictionary.
         events: Optional pre-generated EventSeries instance.
         generate_events: If True and events is None, generates genuine events.
+        fault_map: Optional dictionary mapping sensor_id to SensorFaultSeries.
         
     Returns:
         VirtualSensorGroup instance.
@@ -729,4 +849,5 @@ def simulate_sensors(
         seed=seed,
         events=events,
         generate_events=generate_events,
+        fault_map=fault_map,
     )

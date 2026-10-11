@@ -19,6 +19,20 @@ from src.sim.events import (
     generate_step_exponential_recovery,
     generate_sustained_shift,
 )
+from src.sim.faults import (
+    FaultEpisode,
+    FaultSimulator,
+    FaultType,
+    SensorFaultSeries,
+    generate_dropout_fault,
+    generate_frozen_fault,
+    generate_gain_error_fault,
+    generate_high_noise_fault,
+    generate_offset_drift_fault,
+    generate_slow_degradation_fault,
+    generate_spike_fault,
+    sample_fault_start_step,
+)
 from src.sim.profile import (
     TemperatureProfile,
     TemperatureScenarioParams,
@@ -65,4 +79,16 @@ __all__ = [
     "apply_clipping",
     "apply_quantisation",
     "generate_missing_mask",
+    "FaultType",
+    "FaultEpisode",
+    "SensorFaultSeries",
+    "FaultSimulator",
+    "sample_fault_start_step",
+    "generate_spike_fault",
+    "generate_offset_drift_fault",
+    "generate_gain_error_fault",
+    "generate_frozen_fault",
+    "generate_high_noise_fault",
+    "generate_dropout_fault",
+    "generate_slow_degradation_fault",
 ]

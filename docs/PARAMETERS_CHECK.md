@@ -152,6 +152,8 @@
 | `faults.offset_drift.shape_probs.saturating` | `0.20` | A.4 | "saturating 20%" |
 | `faults.offset_drift.shape_probs.stepped` | `0.15` | A.4 | "stepped 15%" |
 | `faults.offset_drift.shape_probs.sudden_constant` | `0.10` | A.4 | "sudden constant offset 10%" |
+| `faults.offset_drift.stepped_steps_min` | `3` | Decision 22 | "Approved engineering choice: discrete step count min {3, 4, 5}" |
+| `faults.offset_drift.stepped_steps_max` | `5` | Decision 22 | "Approved engineering choice: discrete step count max {3, 4, 5}" |
 | `faults.gain_error.duration_min` | `120` | A.4 | "duration 120 to 1,200 steps" |
 | `faults.gain_error.duration_max` | `1200` | A.4 | "duration 120 to 1,200 steps" |
 | `faults.gain_error.standard_prob` | `0.85` | A.4 | "g in 0.55 to 0.85 or 1.15 to 1.6 (85%)" |

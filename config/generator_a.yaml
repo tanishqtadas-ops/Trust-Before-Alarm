@@ -153,6 +153,8 @@ faults:
       saturating: 0.20                       # Appendix A.4: saturating 20%
       stepped: 0.15                          # Appendix A.4: stepped 15%
       sudden_constant: 0.10                  # Appendix A.4: sudden constant offset 10%
+    stepped_steps_min: 3                     # Decision 22 (approved engineering choice): stepped drift discrete steps min
+    stepped_steps_max: 5                     # Decision 22 (approved engineering choice): stepped drift discrete steps max
   gain_error:
     duration_min: 120                        # Appendix A.4: duration 120 to 1,200 steps (min)
     duration_max: 1200                       # Appendix A.4: duration 120 to 1,200 steps (max)
