@@ -1,6 +1,7 @@
 """Utility modules (configuration, run stamp, hashing)."""
 
 from src.utils.config import (
+    canonical_json,
     compute_config_hash,
     get_config_dir,
     get_repo_root,
@@ -16,6 +17,7 @@ from src.utils.stamp import (
 )
 
 __all__ = [
+    "canonical_json",
     "compute_config_hash",
     "get_config_dir",
     "get_repo_root",

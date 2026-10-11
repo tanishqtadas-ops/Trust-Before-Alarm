@@ -346,7 +346,7 @@ class SensorStream:
                 scenario_id=scenario_id,
                 group_id=group_id,
                 timestamps_minutes=self.timestamps_minutes,
-                true_values=self.canonical_clean_values,
+                true_values=self.physical_values,
             )
         total = self.total_steps
         zeros_i = np.zeros(total, dtype=int)
@@ -357,7 +357,7 @@ class SensorStream:
             "group_id": group_id,
             "sensor_id": self.sensor_id,
             "timestamp": self.timestamps_minutes,
-            "true_value": self.canonical_clean_values,
+            "true_value": self.physical_values,
             "sensor_untrusted": zeros_i,
             "f_spike": zeros_i,
             "f_offset_drift": zeros_i,

@@ -125,6 +125,7 @@ genuine_events:
   arrival_delay_min: 0                       # Appendix A.3: Arrival delay per sensor 0 to 10 min (min)
   arrival_delay_max: 10                      # Appendix A.3: Arrival delay per sensor 0 to 10 min (max)
   detectability_threshold_sigma: 3.0         # Appendix A.3: genuine_event = 1 while event contribution at >= 1 sensor exceeds 3 x sigma_k
+  activity_epsilon_celsius: 0.0001           # Decision 45: activity threshold for labeling (1e-4 C)
 
 faults:
   prob_present_from_start: 0.10              # Appendix A.4: 10% of fault episodes present from step 0

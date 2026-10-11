@@ -93,3 +93,13 @@ def compute_config_hash(config_data: Union[Dict[str, Any], str, Path], length: i
     hasher = hashlib.sha256(canonical_repr.encode("utf-8"))
     digest = hasher.hexdigest()
     return digest[:length] if length else digest
+
+
+def canonical_json(obj: Any) -> str:
+    """Serialize object to deterministic JSON string with sorted keys and stringified types."""
+    if obj is None:
+        return "{}"
+    if isinstance(obj, dict) and len(obj) == 0:
+        return "{}"
+    normalized = _normalize_for_serialization(obj)
+    return json.dumps(normalized, sort_keys=True, ensure_ascii=True, default=str)

@@ -27,7 +27,7 @@ import pandas as pd
 
 from src.sim.environment import EnvironmentSeries
 from src.sim.profile import TemperatureSensorParams
-from src.utils.config import get_config_dir, load_yaml
+from src.utils.config import canonical_json, get_config_dir, load_yaml
 
 
 def generate_step_exponential_recovery(
@@ -208,6 +208,49 @@ class EventEpisode:
     is_detectable: bool
     end_step: int
 
+    def generate_sensor_waveform(
+        self,
+        sensor_id: str,
+        t_minutes: np.ndarray,
+    ) -> np.ndarray:
+        """Compute the signed physical temperature perturbation on a specific sensor."""
+        if sensor_id not in self.affected_sensors or len(t_minutes) == 0:
+            return np.zeros_like(t_minutes, dtype=np.float64)
+        t_arr = self.start_time_minutes + self.sensor_delays.get(sensor_id, 0.0)
+        s_mag = self.magnitude * self.sensor_attenuations.get(sensor_id, 1.0)
+        e_type = self.event_type
+        if e_type == "step_exponential_recovery":
+            return generate_step_exponential_recovery(
+                t_minutes=t_minutes,
+                t_arrival=t_arr,
+                magnitude=s_mag,
+                tau=float(self.shape_params["tau_minutes"]),
+            )
+        elif e_type == "ramp":
+            return generate_ramp(
+                t_minutes=t_minutes,
+                t_arrival=t_arr,
+                magnitude=s_mag,
+                rise_minutes=float(self.shape_params["rise_minutes"]),
+                hold_minutes=float(self.shape_params["hold_minutes"]),
+                fall_minutes=float(self.shape_params["fall_minutes"]),
+            )
+        elif e_type == "pulse":
+            return generate_pulse(
+                t_minutes=t_minutes,
+                t_arrival=t_arr,
+                magnitude=s_mag,
+                duration_minutes=float(self.shape_params["duration_minutes"]),
+            )
+        elif e_type == "sustained_shift":
+            return generate_sustained_shift(
+                t_minutes=t_minutes,
+                t_arrival=t_arr,
+                magnitude=s_mag,
+                rise_minutes=float(self.shape_params["rise_minutes"]),
+            )
+        return np.zeros_like(t_minutes, dtype=np.float64)
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize episode metadata for ground-truth episode tables."""
         return {
@@ -272,6 +315,11 @@ class EventSeries:
     ) -> pd.DataFrame:
         """Export group ground-truth per-step table as specified in Appendix A.7."""
         timestamps = np.arange(self.total_steps, dtype=np.float64) * sampling_rate_minutes
+        cols = [
+            "scenario_id", "group_id", "timestamp", "genuine_event",
+            "event_below_detectability", "event_id", "event_magnitude_sigma",
+            "true_event_breadth", "true_group_value"
+        ]
         return pd.DataFrame({
             "scenario_id": scenario_id,
             "group_id": self.group_id,
@@ -282,21 +330,42 @@ class EventSeries:
             "event_magnitude_sigma": self.event_magnitude_sigma,
             "true_event_breadth": self.true_event_breadth,
             "true_group_value": self.true_group_value,
-        })
+        })[cols]
 
     def episodes_to_dataframe(
         self,
         scenario_id: str = "scenario_0000",
     ) -> pd.DataFrame:
         """Export episode ground-truth table as specified in Appendix A.7."""
+        cols = [
+            "scenario_id", "group_id", "event_id", "event_type", "scope",
+            "start_step", "end_step", "start_time_minutes", "magnitude",
+            "abs_magnitude", "sign", "affected_sensors", "sensor_attenuations",
+            "sensor_delays", "shape_params", "is_detectable"
+        ]
+        if not self.episodes:
+            return pd.DataFrame(columns=cols)
         rows = []
         for ep in self.episodes:
-            row = ep.to_dict()
-            row["scenario_id"] = scenario_id
-            row["group_id"] = self.group_id
-            row["affected_sensors"] = ",".join(ep.affected_sensors)
-            rows.append(row)
-        return pd.DataFrame(rows)
+            rows.append({
+                "scenario_id": scenario_id,
+                "group_id": self.group_id,
+                "event_id": ep.event_id,
+                "event_type": ep.event_type,
+                "scope": ep.scope,
+                "start_step": ep.start_step,
+                "end_step": ep.end_step,
+                "start_time_minutes": ep.start_time_minutes,
+                "magnitude": ep.magnitude,
+                "abs_magnitude": ep.abs_magnitude,
+                "sign": ep.sign,
+                "affected_sensors": ",".join(ep.affected_sensors),
+                "sensor_attenuations": canonical_json(ep.sensor_attenuations),
+                "sensor_delays": canonical_json(ep.sensor_delays),
+                "shape_params": canonical_json(ep.shape_params),
+                "is_detectable": bool(ep.is_detectable),
+            })
+        return pd.DataFrame(rows)[cols]
 
 
 class EventGenerator:
@@ -360,6 +429,7 @@ class EventGenerator:
 
         # Detectability threshold
         self.detectability_threshold_sigma = float(events_cfg["detectability_threshold_sigma"])
+        self.activity_epsilon_celsius = float(events_cfg.get("activity_epsilon_celsius", 1e-4))
 
         # Start step bounds (Decision 18: scored window [480, 1919] inclusive)
         self.start_step_min = int(events_cfg.get("start_step_min", self.warmup_steps))
@@ -690,45 +760,7 @@ class EventGenerator:
             # Generate waveform per sensor for this episode
             ep_sensor_wave: Dict[str, np.ndarray] = {}
             for s_id in sensor_ids:
-                if s_id in affected:
-                    t_arr = start_time_min + delays[s_id]
-                    s_mag = signed_mag * attenuations[s_id]
-
-                    if e_type == "step_exponential_recovery":
-                        w = generate_step_exponential_recovery(
-                            t_minutes=t_minutes,
-                            t_arrival=t_arr,
-                            magnitude=s_mag,
-                            tau=durations["tau_minutes"],
-                        )
-                    elif e_type == "ramp":
-                        w = generate_ramp(
-                            t_minutes=t_minutes,
-                            t_arrival=t_arr,
-                            magnitude=s_mag,
-                            rise_minutes=durations["rise_minutes"],
-                            hold_minutes=durations["hold_minutes"],
-                            fall_minutes=durations["fall_minutes"],
-                        )
-                    elif e_type == "pulse":
-                        w = generate_pulse(
-                            t_minutes=t_minutes,
-                            t_arrival=t_arr,
-                            magnitude=s_mag,
-                            duration_minutes=durations["duration_minutes"],
-                        )
-                    elif e_type == "sustained_shift":
-                        w = generate_sustained_shift(
-                            t_minutes=t_minutes,
-                            t_arrival=t_arr,
-                            magnitude=s_mag,
-                            rise_minutes=durations["rise_minutes"],
-                        )
-                    else:
-                        w = np.zeros(t_steps, dtype=np.float64)
-                else:
-                    w = np.zeros(t_steps, dtype=np.float64)
-
+                w = ep.generate_sensor_waveform(s_id, t_minutes)
                 ep_sensor_wave[s_id] = w
                 sensor_contributions[s_id] += w
 
@@ -743,23 +775,24 @@ class EventGenerator:
         true_group_value = np.zeros(t_steps, dtype=np.float64)
 
         thresh_sigma = self.detectability_threshold_sigma
+        activity_eps = self.activity_epsilon_celsius
 
         for t in range(t_steps):
-            # Check which episodes are active at step t
+            # Check which episodes are active at step t (|w_{e,s}(t)| > activity_eps on any affected sensor in group)
             active_eps = []
             for ep_idx, ep in enumerate(episodes):
                 ep_waves = episode_waveforms[ep_idx]
-                if any(abs(ep_waves[s_id][t]) > 1e-4 for s_id in ep.affected_sensors):
-                    active_eps.append(ep.event_id)
+                if any(abs(ep_waves[s_id][t]) > activity_eps for s_id in ep.affected_sensors if s_id in sensor_ids):
+                    active_eps.append(ep)
 
-            if len(active_eps) > 0:
-                active_event_ids[t] = ",".join(active_eps)
+            # Deterministic sorting by (start_step, event_id)
+            active_eps_sorted = sorted(active_eps, key=lambda e: (e.start_step, e.event_id))
+            if active_eps_sorted:
+                active_event_ids[t] = ",".join(e.event_id for e in active_eps_sorted)
 
-            # Check total event contribution across sensors
+            # Check composite event contribution across sensors
             max_sigma_ratio = 0.0
-            affected_count = 0
             any_detectable = False
-            any_active = False
 
             for s_param in sensor_params:
                 c = abs(sensor_contributions[s_param.sensor_id][t])
@@ -767,24 +800,27 @@ class EventGenerator:
                 ratio = c / sigma
                 if ratio > max_sigma_ratio:
                     max_sigma_ratio = ratio
-
-                if c > 1e-4:
-                    any_active = True
-                    affected_count += 1
-
                 if c >= thresh_sigma * sigma:
                     any_detectable = True
 
-            event_magnitude_sigma[t] = max_sigma_ratio
-            true_event_breadth[t] = affected_count / len(sensor_params) if len(sensor_params) > 0 else 0.0
+            # Threshold-gated diagnostic and breadth
+            if len(active_eps_sorted) > 0:
+                event_magnitude_sigma[t] = max_sigma_ratio
+                active_sensors_in_group = {
+                    s_id for s_id in sensor_ids
+                    if any(abs(episode_waveforms[ep_idx][s_id][t]) > activity_eps for ep_idx, ep in enumerate(episodes))
+                }
+                true_event_breadth[t] = len(active_sensors_in_group) / len(sensor_params) if len(sensor_params) > 0 else 0.0
 
-            if any_detectable:
-                genuine_event[t] = 1
-                event_below_detectability[t] = 0
-            elif any_active:
-                genuine_event[t] = 0
-                event_below_detectability[t] = 1
+                if any_detectable:
+                    genuine_event[t] = 1
+                    event_below_detectability[t] = 0
+                else:
+                    genuine_event[t] = 0
+                    event_below_detectability[t] = 1
             else:
+                event_magnitude_sigma[t] = 0.0
+                true_event_breadth[t] = 0.0
                 genuine_event[t] = 0
                 event_below_detectability[t] = 0
 

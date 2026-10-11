@@ -57,7 +57,7 @@ from src.sim.faults import (
 )
 from src.sim.profile import TemperatureProfile, TemperatureScenarioParams, TemperatureSensorParams
 from src.sim.sensors import VirtualSensorGroup, VirtualSensorSimulator, simulate_sensors
-from src.utils.config import get_config_dir, load_yaml
+from src.utils.config import canonical_json, get_config_dir, load_yaml
 
 
 # =============================================================================
@@ -349,6 +349,7 @@ class VirtualScenario:
     target_mechanism: str = "none"
     hard_mechanisms: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    config: Optional[Dict[str, Any]] = None
 
     @property
     def total_sensors(self) -> int:
@@ -366,15 +367,210 @@ class VirtualScenario:
         Columns: scenario_id, group_id, sensor_id, variable_type, timestamp, value.
         Ground truth is strictly isolated and never included.
         """
+        if stride < 1:
+            raise ValueError(f"stride must be >= 1, got {stride}")
         dfs = []
-        for gid, group in self.groups.items():
+        for gid, group in sorted(self.groups.items()):
             df_g = group.to_observable_dataframe(scenario_id=self.scenario_id, stride=stride)
             dfs.append(df_g)
+        cols = ["scenario_id", "group_id", "sensor_id", "variable_type", "timestamp", "value"]
         if dfs:
-            return pd.concat(dfs, ignore_index=True)
-        return pd.DataFrame(columns=[
-            "scenario_id", "group_id", "sensor_id", "variable_type", "timestamp", "value"
-        ])
+            df = pd.concat(dfs, ignore_index=True)
+            return df[cols]
+        return pd.DataFrame(columns=cols)
+
+    def to_ground_truth_sensors_dataframe(self) -> pd.DataFrame:
+        """Export per-sensor per-step ground truth table (16 columns strictly).
+        
+        Columns: scenario_id, group_id, sensor_id, timestamp, true_value,
+                 sensor_untrusted, f_spike, f_offset_drift, f_gain_error,
+                 f_frozen, f_high_noise, f_dropout, f_slow_degradation,
+                 fault_severity, true_health, fault_id
+        """
+        dfs = []
+        for gid, group in sorted(self.groups.items()):
+            df_g = group.to_ground_truth_sensors_dataframe(scenario_id=self.scenario_id)
+            dfs.append(df_g)
+        cols = [
+            "scenario_id", "group_id", "sensor_id", "timestamp", "true_value",
+            "sensor_untrusted", "f_spike", "f_offset_drift", "f_gain_error",
+            "f_frozen", "f_high_noise", "f_dropout", "f_slow_degradation",
+            "fault_severity", "true_health", "fault_id"
+        ]
+        if dfs:
+            df = pd.concat(dfs, ignore_index=True)
+            return df[cols]
+        return pd.DataFrame(columns=cols)
+
+    def to_ground_truth_events_dataframe(self) -> pd.DataFrame:
+        """Export per-group per-step ground truth events table (9 columns strictly).
+        
+        Columns: scenario_id, group_id, timestamp, genuine_event,
+                 event_below_detectability, event_id, event_magnitude_sigma,
+                 true_event_breadth, true_group_value
+        """
+        dfs = []
+        for gid, group in sorted(self.groups.items()):
+            df_g = group.to_ground_truth_events_dataframe(scenario_id=self.scenario_id)
+            dfs.append(df_g)
+        cols = [
+            "scenario_id", "group_id", "timestamp", "genuine_event",
+            "event_below_detectability", "event_id", "event_magnitude_sigma",
+            "true_event_breadth", "true_group_value"
+        ]
+        if dfs:
+            df = pd.concat(dfs, ignore_index=True)
+            return df[cols]
+        return pd.DataFrame(columns=cols)
+
+    def to_fault_episodes_dataframe(self) -> pd.DataFrame:
+        """Export fault episodes ground truth catalog (10 columns strictly).
+        
+        Columns: scenario_id, group_id, sensor_id, fault_id, fault_type,
+                 start_step, end_step, duration, max_severity, shape_params
+        """
+        dfs = []
+        for gid, group in sorted(self.groups.items()):
+            df_g = group.fault_episodes_to_dataframe(scenario_id=self.scenario_id)
+            dfs.append(df_g)
+        cols = [
+            "scenario_id", "group_id", "sensor_id", "fault_id", "fault_type",
+            "start_step", "end_step", "duration", "max_severity", "shape_params"
+        ]
+        if dfs:
+            df = pd.concat(dfs, ignore_index=True)
+            return df[cols]
+        return pd.DataFrame(columns=cols)
+
+    def fault_episodes_to_dataframe(self) -> pd.DataFrame:
+        """Convenience alias for to_fault_episodes_dataframe."""
+        return self.to_fault_episodes_dataframe()
+
+    def to_event_episodes_dataframe(self) -> pd.DataFrame:
+        """Export genuine event episodes catalog (16 columns strictly).
+        
+        Columns: scenario_id, event_id, event_type, scope, start_step, end_step,
+                 start_time_minutes, magnitude, abs_magnitude, sign,
+                 affected_sensors, affected_groups, sensor_attenuations,
+                 sensor_delays, shape_params, is_detectable
+        """
+        cols = [
+            "scenario_id", "event_id", "event_type", "scope", "start_step",
+            "end_step", "start_time_minutes", "magnitude", "abs_magnitude",
+            "sign", "affected_sensors", "affected_groups", "sensor_attenuations",
+            "sensor_delays", "shape_params", "is_detectable"
+        ]
+        if self.events is None or len(self.events.episodes) == 0:
+            return pd.DataFrame(columns=cols)
+
+        rows = []
+        for ep in self.events.episodes:
+            impacted = [
+                gid for gid, g in sorted(self.groups.items())
+                if any(s_id in g.sensors for s_id in ep.affected_sensors)
+            ]
+            rows.append({
+                "scenario_id": self.scenario_id,
+                "event_id": ep.event_id,
+                "event_type": ep.event_type,
+                "scope": ep.scope,
+                "start_step": int(ep.start_step),
+                "end_step": int(ep.end_step),
+                "start_time_minutes": float(ep.start_time_minutes),
+                "magnitude": float(ep.magnitude),
+                "abs_magnitude": float(ep.abs_magnitude),
+                "sign": int(ep.sign),
+                "affected_sensors": ",".join(ep.affected_sensors),
+                "affected_groups": ",".join(impacted),
+                "sensor_attenuations": canonical_json(ep.sensor_attenuations),
+                "sensor_delays": canonical_json(ep.sensor_delays),
+                "shape_params": canonical_json(ep.shape_params),
+                "is_detectable": bool(ep.is_detectable),
+            })
+        return pd.DataFrame(rows)[cols]
+
+    def event_episodes_to_dataframe(self) -> pd.DataFrame:
+        """Convenience alias for to_event_episodes_dataframe."""
+        return self.to_event_episodes_dataframe()
+
+    def episodes_to_dataframe(self) -> pd.DataFrame:
+        """Convenience alias for to_event_episodes_dataframe."""
+        return self.to_event_episodes_dataframe()
+
+    def to_scenario_record(self, split: str = "unassigned") -> Dict[str, Any]:
+        """Export scenario-level record (21 columns strictly)."""
+        k_faulty = sum(
+            1 for g in self.groups.values() for s in g.sensors.values()
+            if s.fault_series is not None and s.fault_series.has_faults
+        )
+        dt = float(self.environment.timestamps_minutes[1] - self.environment.timestamps_minutes[0]) if len(self.environment.timestamps_minutes) > 1 else 1.0
+
+        if self.difficulty_tier == "hard":
+            if self.target_mechanism != "none":
+                hard_case = self.target_mechanism
+            elif self.hard_mechanisms:
+                hard_case = self.hard_mechanisms[0]
+            else:
+                hard_case = "natural"
+        else:
+            hard_case = "none"
+
+        group_sizes_dict = {gid: len(g.sensors) for gid, g in sorted(self.groups.items())}
+        quant_dict = {
+            s_id: float(s.params.quantisation_step)
+            for gid, g in sorted(self.groups.items())
+            for s_id, s in sorted(g.sensors.items())
+        }
+        clip_limits_dict = {
+            "environment": [
+                float(self.environment.params.environment_clip_min),
+                float(self.environment.params.environment_clip_max),
+            ],
+            "sensor": [
+                float(self.environment.params.sensor_clip_min),
+                float(self.environment.params.sensor_clip_max),
+            ],
+        }
+
+        gen_version = "1.0.0"
+        if self.config and "generator_version" in self.config:
+            gen_version = str(self.config["generator_version"])
+
+        return {
+            "scenario_id": self.scenario_id,
+            "split": str(split),
+            "generator_version": gen_version,
+            "seed": int(self.seed),
+            "scenario_type": self.scenario_type,
+            "difficulty": self.difficulty_tier,
+            "hard_case_type": hard_case,
+            "sensor_count": int(self.total_sensors),
+            "group_count": int(len(self.groups)),
+            "group_sizes": canonical_json(group_sizes_dict),
+            "length": int(self.environment.total_steps),
+            "sampling": float(dt),
+            "profile": str(self.environment.params.variable_type),
+            "quantisation": canonical_json(quant_dict),
+            "clip_limits": canonical_json(clip_limits_dict),
+            "unit_scale": canonical_json(self.environment.params.unit_scaler.to_dict()),
+            "faulty_sensors_count": int(k_faulty),
+            "faulty_fraction": float(k_faulty / self.total_sensors) if self.total_sensors > 0 else 0.0,
+            "has_events": bool(self.events is not None and len(self.events.episodes) > 0),
+            "event_count": int(len(self.events.episodes) if self.events is not None else 0),
+            "has_shared_cause": bool(detect_shared_cause_pair(self)),
+        }
+
+    def to_scenario_dataframe(self, split: str = "unassigned") -> pd.DataFrame:
+        """Export scenario-level table (21 columns strictly)."""
+        cols = [
+            "scenario_id", "split", "generator_version", "seed", "scenario_type",
+            "difficulty", "hard_case_type", "sensor_count", "group_count",
+            "group_sizes", "length", "sampling", "profile", "quantisation",
+            "clip_limits", "unit_scale", "faulty_sensors_count", "faulty_fraction",
+            "has_events", "event_count", "has_shared_cause"
+        ]
+        record = self.to_scenario_record(split=split)
+        return pd.DataFrame([record])[cols]
 
     def to_metadata_dict(self) -> Dict[str, Any]:
         """Export scenario-level metadata summary."""
@@ -510,7 +706,7 @@ class ScenarioSimulator:
         # 7. Simulate sensor streams per group (independent measurement noise per group)
         groups_dict: Dict[str, VirtualSensorGroup] = {}
         for gid, params_g in group_sensor_params.items():
-            g_events = self._filter_events_for_group(event_series, params_g, gid)
+            g_events = self._filter_events_for_group(event_series, params_g, gid, environment=env_series)
             group_sim = self.sensor_simulator.simulate_group(
                 environment=env_series,
                 sensor_params=params_g,
@@ -531,6 +727,7 @@ class ScenarioSimulator:
             events=event_series,
             target_mechanism="none",
             hard_mechanisms=[],
+            config=self.config,
         )
 
         # 8. HARD Tier Evaluation and Deterministic Constructive Fallback (Decision 38)
@@ -556,42 +753,109 @@ class ScenarioSimulator:
         event_series: EventSeries,
         params_g: Sequence[TemperatureSensorParams],
         group_id: str,
+        environment: Optional[EnvironmentSeries] = None,
     ) -> EventSeries:
-        """Filter scenario EventSeries to group-specific view."""
+        """Filter scenario EventSeries to group-specific view adhering strictly to Decision 45."""
         g_sids = {s.sensor_id for s in params_g}
-        g_contrib = {sid: event_series.sensor_contributions[sid] for sid in g_sids if sid in event_series.sensor_contributions}
+        g_contrib = {
+            s.sensor_id: event_series.sensor_contributions.get(
+                s.sensor_id, np.zeros(event_series.total_steps, dtype=np.float64)
+            )
+            for s in params_g
+        }
 
-        # Per-step genuine event mask is True if any sensor in this group is detectable
         t_steps = event_series.total_steps
+        dt = self.sensor_simulator.sampling_rate_minutes
+        t_minutes = np.arange(t_steps, dtype=np.float64) * dt
         thresh = self.event_generator.detectability_threshold_sigma
+        activity_eps = self.event_generator.activity_epsilon_celsius
+
+        group_episodes = [
+            ep for ep in event_series.episodes
+            if any(sid in g_sids for sid in ep.affected_sensors)
+        ]
+
+        ep_waves: Dict[str, Dict[str, np.ndarray]] = {}
+        for ep in group_episodes:
+            ep_waves[ep.event_id] = {
+                s.sensor_id: ep.generate_sensor_waveform(s.sensor_id, t_minutes)
+                for s in params_g
+            }
+
         g_gen_event = np.zeros(t_steps, dtype=int)
         g_below = np.zeros(t_steps, dtype=int)
+        g_mag_sigma = np.zeros(t_steps, dtype=np.float64)
+        g_breadth = np.zeros(t_steps, dtype=np.float64)
+        g_active_ids: List[str] = ["" for _ in range(t_steps)]
+        g_true_group_val = np.zeros(t_steps, dtype=np.float64)
 
         for t in range(t_steps):
+            # Check individual episode waveforms on affected group sensors
+            active_eps = [
+                ep for ep in group_episodes
+                if any(
+                    abs(ep_waves[ep.event_id][s.sensor_id][t]) > activity_eps
+                    for s in params_g if s.sensor_id in ep.affected_sensors
+                )
+            ]
+            active_eps_sorted = sorted(active_eps, key=lambda e: (e.start_step, e.event_id))
+            if active_eps_sorted:
+                g_active_ids[t] = ",".join(e.event_id for e in active_eps_sorted)
+
             any_detectable = any(
                 abs(g_contrib[s.sensor_id][t]) >= thresh * s.sigma_k
                 for s in params_g if s.sensor_id in g_contrib
             )
-            any_active = any(
-                abs(g_contrib[s.sensor_id][t]) > 1e-4
-                for s in params_g if s.sensor_id in g_contrib
-            )
-            if any_detectable:
-                g_gen_event[t] = 1
-            elif any_active:
-                g_below[t] = 1
+
+            if len(active_eps_sorted) > 0:
+                max_sigma_ratio = max(
+                    (abs(g_contrib[s.sensor_id][t]) / s.sigma_k for s in params_g if s.sensor_id in g_contrib),
+                    default=0.0
+                )
+                active_sensors = {
+                    s.sensor_id for s in params_g
+                    if any(abs(ep_waves[ep.event_id][s.sensor_id][t]) > activity_eps for ep in group_episodes)
+                }
+                g_mag_sigma[t] = max_sigma_ratio
+                g_breadth[t] = len(active_sensors) / len(params_g) if len(params_g) > 0 else 0.0
+
+                if any_detectable:
+                    g_gen_event[t] = 1
+                    g_below[t] = 0
+                else:
+                    g_gen_event[t] = 0
+                    g_below[t] = 1
+            else:
+                g_mag_sigma[t] = 0.0
+                g_breadth[t] = 0.0
+                g_gen_event[t] = 0
+                g_below[t] = 0
+
+            if environment is not None:
+                base_val = environment.values[t]
+                phys_vals = [
+                    np.clip(base_val + g_contrib[s.sensor_id][t], self.sensor_simulator.env_clip_min, self.sensor_simulator.env_clip_max)
+                    for s in params_g if s.sensor_id in g_contrib
+                ]
+                g_true_group_val[t] = float(np.mean(phys_vals)) if phys_vals else float(base_val)
+            else:
+                phys_vals = [
+                    g_contrib[s.sensor_id][t]
+                    for s in params_g if s.sensor_id in g_contrib
+                ]
+                g_true_group_val[t] = float(np.mean(phys_vals)) if phys_vals else 0.0
 
         return EventSeries(
             group_id=group_id,
             total_steps=t_steps,
-            episodes=[ep for ep in event_series.episodes if any(sid in g_sids for sid in ep.affected_sensors)],
+            episodes=group_episodes,
             sensor_contributions=g_contrib,
             genuine_event=g_gen_event,
             event_below_detectability=g_below,
-            event_magnitude_sigma=event_series.event_magnitude_sigma,
-            true_event_breadth=event_series.true_event_breadth,
-            active_event_ids=event_series.active_event_ids,
-            true_group_value=event_series.true_group_value,
+            event_magnitude_sigma=g_mag_sigma,
+            true_event_breadth=g_breadth,
+            active_event_ids=g_active_ids,
+            true_group_value=g_true_group_val,
         )
 
     def _apply_hard_fallback(
@@ -970,7 +1234,7 @@ class ScenarioSimulator:
         groups_dict: Dict[str, VirtualSensorGroup] = {}
 
         for gid, params_g in group_sensor_params.items():
-            g_events = self._filter_events_for_group(new_events, params_g, gid) if new_events is not None else None
+            g_events = self._filter_events_for_group(new_events, params_g, gid, environment=scenario.environment) if new_events is not None else None
             group_sim = self.sensor_simulator.simulate_group(
                 environment=scenario.environment,
                 sensor_params=params_g,
@@ -992,6 +1256,7 @@ class ScenarioSimulator:
             target_mechanism=scenario.target_mechanism,
             hard_mechanisms=scenario.hard_mechanisms,
             metadata=scenario.metadata,
+            config=self.config,
         )
 
 

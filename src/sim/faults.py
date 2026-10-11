@@ -43,7 +43,7 @@ import numpy as np
 import pandas as pd
 
 from src.sim.profile import TemperatureSensorParams
-from src.utils.config import get_config_dir, load_yaml
+from src.utils.config import canonical_json, get_config_dir, load_yaml
 
 
 class FaultType(str, Enum):
@@ -908,10 +908,12 @@ class SensorFaultSeries:
         return np.any(masks, axis=0).astype(int)
 
     def get_fault_ids_per_step(self) -> List[str]:
-        """Get comma-separated fault IDs active at each step."""
+        """Get comma-separated fault IDs active at each step, ordered deterministically."""
         res = []
         for t in range(self.total_steps):
-            active_ids = [ep.fault_id for ep in self.episodes if ep.start_step <= t < ep.end_step]
+            active_eps = [ep for ep in self.episodes if ep.start_step <= t < ep.end_step]
+            active_sorted = sorted(active_eps, key=lambda ep: (ep.start_step, ep.fault_id))
+            active_ids = [ep.fault_id for ep in active_sorted]
             res.append(",".join(active_ids))
         return res
 
@@ -948,6 +950,12 @@ class SensorFaultSeries:
         group_id: str = "group_00",
     ) -> pd.DataFrame:
         """Export episode ground truth table (Appendix A.7)."""
+        cols = [
+            "scenario_id", "group_id", "sensor_id", "fault_id", "fault_type",
+            "start_step", "end_step", "duration", "max_severity", "shape_params"
+        ]
+        if not self.episodes:
+            return pd.DataFrame(columns=cols)
         rows = []
         for ep in self.episodes:
             ft_str = ep.fault_type.value if isinstance(ep.fault_type, FaultType) else str(ep.fault_type)
@@ -961,9 +969,12 @@ class SensorFaultSeries:
                 "end_step": ep.end_step,
                 "duration": ep.duration,
                 "max_severity": ep.max_severity,
-                "shape_params": ep.shape_params,
+                "shape_params": canonical_json(ep.shape_params),
             })
-        return pd.DataFrame(rows)
+        return pd.DataFrame(rows)[cols]
+
+
+FaultSeries = SensorFaultSeries
 
 
 class FaultSimulator:
