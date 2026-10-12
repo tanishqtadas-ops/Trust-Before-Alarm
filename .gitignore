@@ -33,8 +33,14 @@ htmlcov/
 
 # Project Data and Runs
 data/
-runs/
+runs/*
+!runs/sanity_batch_100/
+runs/sanity_batch_100/*
+!runs/sanity_batch_100/authoritative_10_scenarios_summary.csv
 *.parquet
+
+# Scratch
+scratch/
 
 # IDEs
 .idea/
