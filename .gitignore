@@ -33,6 +33,7 @@ htmlcov/
 
 # Project Data and Runs
 data/
+data_backup*/
 runs/*
 !runs/sanity_batch_100/
 runs/sanity_batch_100/*

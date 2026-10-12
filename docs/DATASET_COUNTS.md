@@ -13,13 +13,27 @@ This document provides the authoritative, cross-checked audit of fault support, 
 
 ## 1. Partition Overview & Sampling Strides
 
+### 1.1 Current Dataset: Full 1-Minute Resolution (P1.12 Export)
+Under Phase P1.12, all four partitions are exported at full 1-minute resolution (stride 1, 1,920 steps per sensor, 1,920 group steps per group). Training and validation scoring rows are derived by rule ($t \pmod 5 == 0$, 384 steps per sensor) without introducing new columns.
+
+| Partition | Scenarios | Export Stride | Sensor Rows (Full) | Sensor Rows (Scored $t \ge 480$) | Group Rows (Full) | Group Rows (Scored $t \ge 480$) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `train` | 900 | Stride 1 (1 min) | 10,212,480 | 7,659,360 | 1,873,920 | 1,405,440 |
+| `val` | 300 | Stride 1 (1 min) | 3,417,600 | 2,563,200 | 635,520 | 476,640 |
+| `test_full_resolution` | 150 | Stride 1 (1 min) | 1,668,480 | 1,251,360 | 318,720 | 239,040 |
+| `test_downsampled` | 150 | Stride 1 (1 min) | 1,691,520 | 1,268,640 | 314,880 | 236,160 |
+| **Total Full-Resolution** | **1,500** | **Stride 1 (Uniform)** | **16,990,080** | **12,742,560** | **3,143,040** | **2,357,280** |
+
+### 1.2 Benchmark / Backup Dataset: Stride-5 Downsampled Partitions (P1.11 Archive)
+For historical reference and regression auditing against `data_backup_p111`, the original exported row counts from P1.11 (where `train`, `val`, and `test_downsampled` were exported at stride 5) are preserved below:
+
 | Partition | Scenarios | Sampling Stride | Sensor Rows (Full) | Sensor Rows (Scored) | Group Rows (Full) | Group Rows (Scored) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | `train` | 900 | Stride 5 (5 min) | 2,042,496 | 1,531,872 | 374,784 | 281,088 |
 | `val` | 300 | Stride 5 (5 min) | 683,520 | 512,640 | 127,104 | 95,328 |
 | `test_full_resolution` | 150 | Stride 1 (1 min) | 1,668,480 | 1,251,360 | 318,720 | 239,040 |
 | `test_downsampled` | 150 | Stride 5 (5 min) | 338,304 | 253,728 | 62,976 | 47,232 |
-| **Total Pooled** | **1,500** | **Mixed (1 & 5)** | **4,732,800** | **3,549,600** | **883,584** | **662,688** |
+| **Total Pooled (P1.11)** | **1,500** | **Mixed (1 & 5)** | **4,732,800** | **3,549,600** | **883,584** | **662,688** |
 
 ---
 
@@ -83,9 +97,41 @@ Because scenarios in MEDIUM and HARD tiers can contain multiple faulty sensors o
 
 ## 3. Positive Sensor-Step Counts by Fault Flag & Partition
 
-Sensor-step counts measure active rows in `ground_truth_sensors.parquet`. Stride 1 partitions (`test_full_resolution`) produce $5\times$ more rows per scenario than stride 5 partitions.
+Sensor-step counts measure active rows in `ground_truth_sensors.parquet`. Below, counts are reported for both the **P1.12 Full 1-Minute Resolution** dataset (stride 1 across all partitions) and the **P1.11 Archive** (stride-5 downsampled partitions).
 
-### 3.1 Scored Window ($t \ge 480.0$ min)
+### 3.1 Full 1-Minute Resolution Dataset (P1.12 Current Export)
+
+#### 3.1.1 Scored Window ($t \ge 480.0$ min, 12,742,560 total sensor rows)
+
+| Fault Flag | `train` | `val` | `test_full_resolution` | `test_downsampled` | Total Full | Pooled Rate (% of 12.74M) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `f_spike` | 4,326 | 1,678 | 658 | 844 | **7,506** | **0.0589%** |
+| `f_offset_drift` | 89,203 | 28,430 | 20,523 | 12,583 | **150,739** | **1.1830%** |
+| `f_gain_error` | 101,888 | 34,140 | 17,621 | 18,360 | **172,009** | **1.3499%** |
+| `f_frozen` | 15,602 | 3,336 | 2,126 | 2,734 | **23,798** | **0.1868%** |
+| `f_high_noise` | 39,540 | 12,935 | 4,719 | 7,214 | **64,408** | **0.5055%** |
+| `f_dropout` | 52,217 | 16,936 | 10,128 | 8,825 | **88,106** | **0.6914%** |
+| `f_slow_degradation` | 68,557 | 21,044 | 11,517 | 12,037 | **113,155** | **0.8880%** |
+| **`sensor_untrusted`** | **319,192** | **102,037** | **59,011** | **53,997** | **534,237** | **4.1925%** |
+
+#### 3.1.2 Full Duration ($t \in [0, 1919]$ min, 16,990,080 total sensor rows)
+
+| Fault Flag | `train` | `val` | `test_full_resolution` | `test_downsampled` | Total Full | Pooled Rate (% of 16.99M) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `f_spike` | 4,746 | 1,793 | 696 | 931 | **8,166** | **0.0481%** |
+| `f_offset_drift` | 98,894 | 33,004 | 21,483 | 13,543 | **166,924** | **0.9825%** |
+| `f_gain_error` | 111,208 | 35,568 | 18,581 | 19,320 | **184,677** | **1.0870%** |
+| `f_frozen` | 16,660 | 3,695 | 2,258 | 2,858 | **25,471** | **0.1499%** |
+| `f_high_noise` | 43,573 | 14,205 | 5,282 | 8,211 | **71,271** | **0.4195%** |
+| `f_dropout` | 57,076 | 20,057 | 11,147 | 9,671 | **97,951** | **0.5765%** |
+| `f_slow_degradation` | 73,381 | 22,618 | 11,772 | 12,338 | **120,109** | **0.7069%** |
+| **`sensor_untrusted`** | **348,449** | **112,629** | **62,890** | **58,008** | **581,976** | **3.4254%** |
+
+---
+
+### 3.2 Benchmark / Backup Stride-5 Sensor-Step Counts (P1.11 Archive)
+
+#### 3.2.1 Scored Window ($t \ge 480.0$ min, 3,549,600 total pooled rows)
 
 | Fault Flag | `train` (stride 5) | `val` (stride 5) | `test_full_resolution` (stride 1) | `test_downsampled` (stride 5) | Pooled Total | Pooled Rate (% of 3,549,600) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -98,7 +144,7 @@ Sensor-step counts measure active rows in `ground_truth_sensors.parquet`. Stride
 | `f_slow_degradation` | 13,691 | 4,201 | 11,517 | 2,407 | **31,816** | **0.8963%** |
 | **`sensor_untrusted`** | **63,716** | **20,368** | **59,011** | **10,786** | **153,881** | **4.3352%** |
 
-### 3.2 Full Duration ($t \in [0, 1919]$ min)
+#### 3.2.2 Full Duration ($t \in [0, 1919]$ min, 4,732,800 total pooled rows)
 
 | Fault Flag | `train` (stride 5) | `val` (stride 5) | `test_full_resolution` (stride 1) | `test_downsampled` (stride 5) | Pooled Total | Pooled Rate (% of 4,732,800) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -117,13 +163,25 @@ Sensor-step counts measure active rows in `ground_truth_sensors.parquet`. Stride
 
 Genuine environmental events are injected at the group level and strictly begin after warmup ($t \ge 480$ min, Decision 18). Consequently, positive group-step numerators are identical between scored and full windows, while denominators change.
 
+### 4.1 Full 1-Minute Resolution (P1.12 Current Export)
+
+| Partition | Event Episodes | Genuine Steps (Scored) | Group Rows (Scored) | Scored Rate (%) | Genuine Steps (Full) | Group Rows (Full) | Full-Duration Rate (%) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `train` | 1,083 | 241,444 | 1,405,440 | 17.1792% | 241,444 | 1,873,920 | **12.8844%** |
+| `val` | 351 | 77,317 | 476,640 | 16.2213% | 77,317 | 635,520 | **12.1659%** |
+| `test_full_resolution` | 168 | 36,578 | 239,040 | 15.3020% | 36,578 | 318,720 | **11.4765%** |
+| `test_downsampled` | 168 | 43,498 | 236,160 | 18.4189% | 43,498 | 314,880 | **13.8142%** |
+| **Total Full-Resolution** | **1,770** | **398,837** | **2,357,280** | **16.9194%** | **398,837** | **3,143,040** | **12.6895%** |
+
+### 4.2 Benchmark / Backup Stride-5 Export (P1.11 Archive)
+
 | Partition | Event Episodes | Genuine Steps (Scored) | Group Rows (Scored) | Scored Rate (%) | Genuine Steps (Full) | Group Rows (Full) | Full-Duration Rate (%) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | `train` | 1,083 | 48,211 | 281,088 | 17.1516% | 48,211 | 374,784 | **12.8637%** |
 | `val` | 351 | 15,440 | 95,328 | 16.1967% | 15,440 | 127,104 | **12.1475%** |
 | `test_full_resolution` | 168 | 36,578 | 239,040 | 15.3020% | 36,578 | 318,720 | **11.4765%** |
 | `test_downsampled` | 168 | 8,676 | 47,232 | 18.3689% | 8,676 | 62,976 | **13.7767%** |
-| **Total Pooled** | **1,770** | **108,905** | **662,688** | **16.4338%** | **108,905** | **883,584** | **12.3254%** |
+| **Total Pooled (P1.11)** | **1,770** | **108,905** | **662,688** | **16.4338%** | **108,905** | **883,584** | **12.3254%** |
 
 > [!NOTE]
 > **Specification Conformance:** The pooled full-duration genuine-event rate is **12.3254%** (108,905 / 883,584 group rows), and each partition's individual rate (`train`: 12.86%, `val`: 12.15%, `test_full`: 11.48%, `test_down`: 13.78%) strictly satisfies the formal **8–15% full-duration genuine-event prevalence requirement** (Appendix A.3).

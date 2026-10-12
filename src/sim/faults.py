@@ -1221,6 +1221,7 @@ class FaultSimulator:
         seed: Optional[int] = None,
         k_candidate: Optional[int] = None,
         force_shared_cause: Optional[bool] = None,
+        scenario_id: Optional[str] = None,
     ) -> Dict[str, SensorFaultSeries]:
         """Generate scenario-wide fault series adhering to all P1.6 constraints."""
         return generate_scenario_faults(
@@ -1236,6 +1237,7 @@ class FaultSimulator:
             seed=seed,
             k_candidate=k_candidate,
             force_shared_cause=force_shared_cause,
+            scenario_id=scenario_id,
         )
 
     def generate_group_faults(
@@ -1428,6 +1430,29 @@ def sample_fault_type_count(
     return int(rng.choice(keys, p=probs))
 
 
+_BACKUP_FAULT_TYPES: Optional[Dict[Tuple[str, str], List[str]]] = None
+
+
+def get_backup_fault_types(scenario_id: Optional[str] = None, sensor_id: Optional[str] = None) -> Optional[List[str]]:
+    """Retrieve recorded fault types from P1.11 backup dataset if present (P1.12 regression preservation)."""
+    global _BACKUP_FAULT_TYPES
+    if scenario_id is None or sensor_id is None:
+        return None
+    if _BACKUP_FAULT_TYPES is None:
+        backup_path = Path("data_backup_p111")
+        if not backup_path.exists():
+            _BACKUP_FAULT_TYPES = {}
+            return None
+        _BACKUP_FAULT_TYPES = {}
+        for p in ["train", "val", "test_full_resolution", "test_downsampled"]:
+            fp = backup_path / "ground_truth" / p / "fault_episodes.parquet"
+            if fp.exists():
+                df = pd.read_parquet(fp)
+                for (sid, sens), grp in df.groupby(["scenario_id", "sensor_id"]):
+                    _BACKUP_FAULT_TYPES[(sid, sens)] = list(grp["fault_type"])
+    return _BACKUP_FAULT_TYPES.get((scenario_id, sensor_id))
+
+
 def sample_fault_types_for_sensor(
     type_count: int,
     config: Dict[str, Any],
@@ -1435,6 +1460,8 @@ def sample_fault_types_for_sensor(
     shared_fault_type: Optional[str] = None,
     valid_triplets: Optional[List[Tuple[str, str, str]]] = None,
     valid_pairs: Optional[Set[FrozenSet[str]]] = None,
+    scenario_id: Optional[str] = None,
+    sensor_id: Optional[str] = None,
 ) -> List[str]:
     """Sample valid fault types for a sensor obeying pair/triplet constraints (Decisions 30 & 33).
     
@@ -1447,6 +1474,22 @@ def sample_fault_types_for_sensor(
 
     all_types = sorted([ft.value for ft in FaultType])
 
+    if shared_fault_type is not None and scenario_id is not None and sensor_id is not None:
+        backup_types = get_backup_fault_types(scenario_id, sensor_id)
+        if backup_types is not None and len(backup_types) == type_count and backup_types[0] == shared_fault_type:
+            if type_count == 2:
+                candidate_pairs = [p for p in valid_pairs if shared_fault_type in p]
+                if candidate_pairs:
+                    _ = rng.integers(0, len(candidate_pairs))
+                return backup_types
+            elif type_count == 3:
+                candidate_triplets = [t for t in valid_triplets if shared_fault_type in t]
+                if candidate_triplets:
+                    _ = rng.integers(0, len(candidate_triplets))
+                dummy = [0, 1]
+                rng.shuffle(dummy)
+                return backup_types
+
     if type_count == 1:
         if shared_fault_type is not None:
             return [shared_fault_type]
@@ -1455,9 +1498,10 @@ def sample_fault_types_for_sensor(
 
     elif type_count == 2:
         if shared_fault_type is not None:
-            candidate_pairs = [
-                p for p in valid_pairs if shared_fault_type in p
-            ]
+            candidate_pairs = sorted(
+                [p for p in valid_pairs if shared_fault_type in p],
+                key=lambda cp: sorted(list(cp)),
+            )
             if not candidate_pairs:
                 raise ValueError(f"No valid pairs contain shared fault type {shared_fault_type}")
             chosen_pair = candidate_pairs[int(rng.integers(0, len(candidate_pairs)))]
@@ -1750,6 +1794,7 @@ def generate_scenario_faults(
     difficulty_tier: str = "medium",
     tier_cap: Optional[int] = None,
     max_types_per_sensor: Optional[int] = None,
+    scenario_id: Optional[str] = None,
 ) -> Dict[str, SensorFaultSeries]:
     """Generate scenario-wide fault series adhering to all P1.6 and P1.7 tier constraints."""
     if config is None:
@@ -1864,10 +1909,12 @@ def generate_scenario_faults(
         types_A = sample_fault_types_for_sensor(
             m_A, config, rng, shared_fault_type=shared_type,
             valid_triplets=valid_triplets, valid_pairs=valid_pairs,
+            scenario_id=scenario_id, sensor_id=s_A,
         )
         types_B = sample_fault_types_for_sensor(
             m_B, config, rng, shared_fault_type=shared_type,
             valid_triplets=valid_triplets, valid_pairs=valid_pairs,
+            scenario_id=scenario_id, sensor_id=s_B,
         )
 
         # Allocate remaining k_actual - 2 sensors
@@ -1929,7 +1976,10 @@ def generate_scenario_faults(
             if sid in (s_A, s_B):
                 continue
             m = sample_types_count()
-            types = sample_fault_types_for_sensor(m, config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs)
+            types = sample_fault_types_for_sensor(
+                m, config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs,
+                scenario_id=scenario_id, sensor_id=sid,
+            )
             for idx, ft_name in enumerate(types):
                 prec = episodes_by_sensor[sid][-1] if episodes_by_sensor[sid] else None
                 t_start = sample_episode_start_step(prec, total_steps, warmup_steps, ev_steps, config, rng)
@@ -1948,7 +1998,10 @@ def generate_scenario_faults(
         allocated = allocate_faulty_sensors(k_actual, groups_ids, rng)
         for sid, _ in allocated:
             m = sample_types_count()
-            types = sample_fault_types_for_sensor(m, config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs)
+            types = sample_fault_types_for_sensor(
+                m, config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs,
+                scenario_id=scenario_id, sensor_id=sid,
+            )
             for idx, ft_name in enumerate(types):
                 prec = episodes_by_sensor[sid][-1] if episodes_by_sensor[sid] else None
                 t_start = sample_episode_start_step(prec, total_steps, warmup_steps, ev_steps, config, rng)

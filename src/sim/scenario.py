@@ -709,6 +709,7 @@ class ScenarioSimulator:
             rng=rng,
             k_candidate=k_candidate,
             difficulty_tier=tier,
+            scenario_id=scenario_id,
         )
 
         # 7. Simulate sensor streams per group (independent measurement noise per group)
@@ -1126,6 +1127,8 @@ class ScenarioSimulator:
                     config=self.config,
                     rng=rng,
                     shared_fault_type="gain_error",
+                    scenario_id=scenario.scenario_id,
+                    sensor_id=target_sid,
                 )
 
                 new_episodes: List[FaultEpisode] = []
@@ -1181,7 +1184,10 @@ class ScenarioSimulator:
 
                 for sid, _ in allocated:
                     m = min(sample_fault_type_count(self.config, rng), 3)
-                    types = sample_fault_types_for_sensor(m, self.config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs)
+                    types = sample_fault_types_for_sensor(
+                        m, self.config, rng, valid_triplets=valid_triplets, valid_pairs=valid_pairs,
+                        scenario_id=scenario.scenario_id, sensor_id=sid,
+                    )
                     for idx, ft_name in enumerate(types):
                         prec = episodes_by_sensor[sid][-1] if episodes_by_sensor[sid] else None
                         t_start = sample_episode_start_step(prec, t_steps, w_steps, ev_steps, self.config, rng)

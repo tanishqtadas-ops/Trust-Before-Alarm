@@ -248,6 +248,7 @@ class BatchDatasetGenerator:
         output_dir: Union[str, Path] = "data",
         descriptors: Optional[List[ScenarioDescriptor]] = None,
         batch_size: int = 100,
+        partition_strides: Optional[Dict[str, int]] = None,
     ) -> Dict[str, Any]:
         """Generate and export the complete 1,500 scenario dataset to Parquet.
         
@@ -266,30 +267,65 @@ class BatchDatasetGenerator:
         raw_path = out_path / "raw"
         gt_path = out_path / "ground_truth"
 
-        scenario_splits, test_subsets, descriptors = self.plan_splits(descriptors)
+        # P1.12: If existing backup dataset is present, lock split assignments from backup
+        # to ensure zero change to split assignment across all 1,500 scenarios.
+        backup_path = Path("data_backup_p111")
+        if descriptors is None and backup_path.exists() and (backup_path / "ground_truth" / "scenarios.parquet").exists():
+            df_old_master = pd.read_parquet(backup_path / "ground_truth" / "scenarios.parquet")
+            scenario_splits = dict(zip(df_old_master["scenario_id"], df_old_master["split"]))
+            test_subsets = {}
+            for sub_name in ["test_full_resolution", "test_downsampled"]:
+                sub_scen_path = backup_path / "ground_truth" / sub_name / "scenarios.parquet"
+                if sub_scen_path.exists():
+                    df_sub = pd.read_parquet(sub_scen_path)
+                    for sid in df_sub["scenario_id"]:
+                        test_subsets[sid] = sub_name
+            descriptors = [
+                ScenarioDescriptor(
+                    scenario_id=row["scenario_id"],
+                    seed=int(row["seed"]),
+                    difficulty_tier=row["difficulty"],
+                    fault_profile="",
+                    stratum_name="",
+                )
+                for _, row in df_old_master.iterrows()
+            ]
+        else:
+            scenario_splits, test_subsets, descriptors = self.plan_splits(descriptors)
         desc_by_id = {d.scenario_id: d for d in descriptors}
 
         # Partition definitions: name -> (scenario_ids, split_label, stride)
+        # P1.12: All partitions are exported at full 1-minute resolution (stride 1).
+        # Training and validation 5-minute scoring rows are derived by rule (t % 5 == 0).
+        strides = {
+            "train": 1,
+            "val": 1,
+            "test_full_resolution": 1,
+            "test_downsampled": 1,
+        }
+        if partition_strides is not None:
+            strides.update(partition_strides)
+
         partitions: Dict[str, Tuple[List[str], str, int]] = {
             "train": (
                 [d.scenario_id for d in descriptors if scenario_splits[d.scenario_id] == "train"],
                 "train",
-                5,
+                strides["train"],
             ),
             "val": (
                 [d.scenario_id for d in descriptors if scenario_splits[d.scenario_id] == "val"],
                 "val",
-                5,
+                strides["val"],
             ),
             "test_full_resolution": (
                 [d.scenario_id for d in descriptors if test_subsets.get(d.scenario_id) == "test_full_resolution"],
                 "test",
-                1,
+                strides["test_full_resolution"],
             ),
             "test_downsampled": (
                 [d.scenario_id for d in descriptors if test_subsets.get(d.scenario_id) == "test_downsampled"],
                 "test",
-                5,
+                strides["test_downsampled"],
             ),
         }
 
