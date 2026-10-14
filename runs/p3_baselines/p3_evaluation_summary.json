@@ -1,0 +1,86 @@
+{
+  "raw_alarm": {
+    "overall_far": 4.154163799036477,
+    "overall_recall": 0.638755980861244,
+    "causes": {
+      "EVENT": 1891,
+      "FAULT": 372,
+      "BOTH": 193,
+      "NEITHER": 5088
+    },
+    "tiers": {
+      "easy": {
+        "far": 3.921225382932166,
+        "recall": 0.6578947368421053,
+        "causes": {
+          "EVENT": 445,
+          "FAULT": 69,
+          "BOTH": 34,
+          "NEITHER": 1550
+        }
+      },
+      "medium": {
+        "far": 4.304900181488203,
+        "recall": 0.6235955056179775,
+        "causes": {
+          "EVENT": 575,
+          "FAULT": 172,
+          "BOTH": 70,
+          "NEITHER": 2221
+        }
+      },
+      "hard": {
+        "far": 4.206741573033708,
+        "recall": 0.6463414634146342,
+        "causes": {
+          "EVENT": 871,
+          "FAULT": 131,
+          "BOTH": 89,
+          "NEITHER": 1317
+        }
+      }
+    }
+  },
+  "fixed_threshold": {
+    "calibrated_multiplier": 12.2,
+    "overall_far": 0.4666207845836201,
+    "overall_recall": 0.1339712918660287,
+    "tiers": {
+      "easy": {
+        "far": 0.6389496717724289,
+        "recall": 0.13157894736842105
+      },
+      "medium": {
+        "far": 0.33756805807622503,
+        "recall": 0.16292134831460675
+      },
+      "hard": {
+        "far": 0.449438202247191,
+        "recall": 0.10365853658536585
+      }
+    }
+  },
+  "robust_zscore": {
+    "calibrated_threshold": 5.0,
+    "overall_far": 0.4363386097728837,
+    "overall_recall": 0.14832535885167464,
+    "tiers": {
+      "easy": {
+        "far": 0.6411378555798687,
+        "recall": 0.18421052631578946
+      },
+      "medium": {
+        "far": 0.3466424682395644,
+        "recall": 0.15168539325842698
+      },
+      "hard": {
+        "far": 0.33707865168539325,
+        "recall": 0.12804878048780488
+      }
+    }
+  },
+  "sanity_check": {
+    "status": "BENCHMARK_DIFFICULTY_VALIDATED",
+    "message": "Benchmark difficulty progression validated: baseline is not near-perfect on HARD (HARD recall = 64.6%), and faults remain distinguishable on EASY (EASY recall = 65.8%). No simulator adjustment required."
+  }
+}

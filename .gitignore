@@ -38,6 +38,10 @@ runs/*
 !runs/sanity_batch_100/
 runs/sanity_batch_100/*
 !runs/sanity_batch_100/authoritative_10_scenarios_summary.csv
+!runs/p3_baselines/
+runs/p3_baselines/*
+!runs/p3_baselines/p3_difficulty_report.md
+!runs/p3_baselines/p3_evaluation_summary.json
 *.parquet
 
 # Scratch

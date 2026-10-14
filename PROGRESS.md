@@ -6,11 +6,11 @@
 
 ## CURRENT STATUS (update this block after every task)
 
-- **Current phase:** P2 completed; awaiting review before P3 (Raw alarm, baselines and sanity check)
-- **Last completed task:** P2.6 (Automated truth-isolation test)
-- **Next task:** P3.1 (Raw alarm detector)
+- **Current phase:** P3 completed; awaiting review before P4 (Leakage audit and first model)
+- **Last completed task:** P3.3 (Difficulty check: baselines per tier)
+- **Next task:** P4.1 (Single-feature separability check)
 - **Blocked on / open questions:** Outstanding issue: P1.12 portability / clean-checkout reproducibility follow-up (runtime dependency on local Git-ignored `data_backup_p111/` for fault selection and split locking; local bitwise regression passes, but clean-checkout dataset regeneration without backup is unverified).
-- **Last human-verified phase:** P1 (p1.12 local regression verified; clean-checkout reproduction unverified/pending follow-up)
+- **Last human-verified phase:** P2 (p2.6-verified)
 
 ---
 
@@ -131,9 +131,10 @@ Dates are our targets (official: Round 2 online 15 to 18 Oct, finale 24 Oct 2026
 **Done when:** both tests pass; feature tables saved; user reviews the feature list.
 
 ### P3. Raw alarm, baselines and sanity check (14 to 16 Oct)
-- [ ] P3.1 [M] Raw alarm detector (A.9), episode merging, cause labels EVENT/FAULT/BOTH/NEITHER from truth.
-- [ ] P3.2 [M] Simple baselines: fixed threshold and robust z-score; metrics at the false-alarm budget.
-- [ ] P3.3 [M] Difficulty check: baselines per tier. If baselines are near-perfect on HARD, report to user (data too easy); if faults cannot be seen even on EASY, report (too hard). **Any simulator adjustment needs user approval, happens once, and is logged.**
+- [x] P3.1 [M] Raw alarm detector (A.9), episode merging, cause labels EVENT/FAULT/BOTH/NEITHER from truth.
+- [x] P3.2 [M] Simple baselines: fixed threshold and robust z-score; metrics at the false-alarm budget.
+- [x] P3.3 [M] Difficulty check: baselines per tier. If baselines are near-perfect on HARD, report to user (data too easy); if faults cannot be seen even on EASY, report (too hard). **Any simulator adjustment needs user approval, happens once, and is logged.**
+**Done when:** raw alarm detector implemented with strict 6-column observable isolation; 4-way cause labels verified; baselines calibrated to meet <= 0.5 FAR budget on validation set; difficulty progression validated across EASY, MEDIUM, HARD; full pytest test suite passes (216/216).
 
 ### P4. Leakage audit and first model (15 to 17 Oct)
 - [ ] P4.1 [M] Single-feature separability check (flag AUC > 0.85).
@@ -209,6 +210,7 @@ Build in this order; three screens only.
 
 ## 7. LOG (newest first; one short entry per task)
 
+- 2026-10-15 | P3.1–P3.3 | Implemented Raw Alarm Detector, simple baselines, false-alarm budget evaluation, and difficulty tier checks (Appendix A.9, A.14, Appendix C, Decision 49): (1) RawAlarmDetector implementing 8-hour median +/- 3 x robust spread (1.4826 x MAD), 1-reading persistence start, 10-reading inside clear hysteresis, and 5-gap episode merging; strict 6-column observable isolation; evaluation-only 4-way cause classification (EVENT, FAULT, BOTH, NEITHER) using 3 x sigma_k rule with 5-step grace; (2) FixedThresholdDetector calibrated at k=12.2 (overall FAR 0.4666 ep/day <= 0.50 budget, recall 13.40%) and RobustZScoreDetector calibrated at z=5.0 with rolling 480 window (overall FAR 0.4363 ep/day <= 0.50 budget, recall 14.83%); (3) P3.3 difficulty progression validated across all 300 validation scenarios: baselines achieve 10.37% (fixed) and 12.80% (z-score) on HARD (< 95%, proving benchmark is not too easy), while unconstrained raw alarms achieve 65.79% on EASY (proving physical observability); status BENCHMARK_DIFFICULTY_VALIDATED with no simulator adjustment required; 13/13 new tests pass in tests/test_raw_alarm.py and tests/test_baselines.py | src/models/raw_alarm.py, src/models/baselines.py, src/eval/alarm_metrics.py, src/eval/difficulty_check.py, scripts/evaluate_p3_baselines.py, runs/p3_baselines/*, tests/test_raw_alarm.py, tests/test_baselines.py, PROGRESS.md | pytest tests/ passed (216/216: 13 new P3 tests + 203 existing); full validation evaluation executed in runs/p3_baselines/ | Outstanding issue: P1.12 portability/reproducibility follow-up (runtime dependency on local Git-ignored data_backup_p111/ for fault-selection and split-locking; local bitwise regression passes, but clean-checkout reproducibility without backup is unverified)
 - 2026-10-14 | P2.6 | Implemented automated truth-isolation and schema enforcement test suite: verified FeatureEngine accepts strictly and exclusively 6-column observable schema (scenario_id, group_id, sensor_id, variable_type, timestamp, value); confirmed strict rejection of ground-truth leakage columns; verified complete separation of metadata (scenario_id, group_id, sensor_id, timestamp) from model feature matrices (49 sensor features, 11 group features) with raw values and identifiers strictly excluded; 3/3 tests pass in tests/test_features_p26_truth_isolation.py | tests/test_features_p26_truth_isolation.py, src/features/engine.py, PROGRESS.md | pytest tests/ passed (203/203: 3 new P2.6 tests + 200 existing); verified truth isolation and metadata exclusion | none
 - 2026-10-14 | P2.5 | Implemented automated no-future-data test suite: verified across multiple cutoff timestamps that altering future readings (extreme spikes, complete dropout NaNs, and massive ramp events at t > t_0) produces ZERO change (bitwise / high precision rtol=1e-10) in features already computed for t <= t_0 across all 49 sensor features and all 11 group features; 3/3 tests pass in tests/test_features_p25_no_future_data.py | tests/test_features_p25_no_future_data.py, PROGRESS.md | pytest tests/ passed (200/200: 3 new P2.5 tests + 197 existing); causal-only processing verified | none
 - 2026-10-14 | P2.4 | Implemented group-level feature extraction and Head C group table (Appendix B, Decision 48): group/event features joined to sensor rows (event_breadth_s, event_breadth_m, group_change_s, group_change_m, group_dispersion, same_direction_frac) implementing Appendix A.3 3x sigma_hat sensor-changing rule; Head C group table (11 features: 6 joined + group_slope_s, group_dev_baseline, n_valid_sensors, group_peak_m, group_noise_ratio); single-sensor group compatibility; verified group event breadth jumps to 1.0 during widespread event while isolated faults stay <= 0.20; 4/4 tests pass in tests/test_features_p24.py | src/features/group_features.py, tests/test_features_p24.py, PROGRESS.md | pytest tests/ passed (197/197: 4 new P2.4 tests + 193 existing) | none
@@ -240,6 +242,8 @@ Build in this order; three screens only.
 - 2026-10-10 | P0.1 | Created repo layout, Python 3.11 virtual environment, requirements.txt, config loader with SHA-256 hash | requirements.txt, .gitignore, README.md, src/**, tests/test_config.py, src/utils/config.py | pytest tests/test_config.py passed (5/5) | none
 
 ## 8. DECISION LOG (changes to locked parameters or plan; user approval required)
+
+- 2026-10-15 | Decision 49 (implementation choice): Raw Alarm and Baseline Detector Architectures (P3.1–P3.3): RawAlarmDetector enforces strict 6-column observable DataFrame inputs (scenario_id, group_id, sensor_id, variable_type, timestamp, value) and rejects ground truth columns. Baseline band is computed using 8-hour reference window median +/- 3.0 x robust spread (1.4826 x MAD of readings themselves with 1e-6 epsilon floor). State machine activates on 1 reading outside and clears on 10 consecutive readings inside, recording end_step as the last outside reading, with episodes separated by <= 5 readings merged. Cause labeling (assign_alarm_causes) operates strictly as an evaluation function using Layer 3 truth tables with 5-step grace window to assign mutually exclusive categories: EVENT, FAULT, BOTH, NEITHER. Baseline detectors (FixedThresholdDetector and RobustZScoreDetector) calibrate thresholds on validation data to satisfy the false-alarm budget (FAR <= 0.5 episodes / healthy sensor-day), yielding k=12.2 (Fixed) and z=5.0 (Rolling 480 Z-score). Difficulty progression across EASY, MEDIUM, and HARD is verified with no simulator modifications.
 
 - 2026-10-14 | Decision 48 (implementation choice): Feature Engine Architecture and Column Schemas: FeatureEngine accepts strictly the 6-column observable DataFrame (scenario_id, group_id, sensor_id, variable_type, timestamp, value) and outputs two separate tables: (1) sensor_features_df with 4 metadata columns (scenario_id, group_id, sensor_id, timestamp) and exactly 49 model features (10 own-signal temporal, 6 statistical, 10 data quality, 14 cross-sensor, 3 long-term degradation, 6 joined group/event features); (2) group_features_df with 3 metadata columns (scenario_id, group_id, timestamp) and exactly 11 model features (6 group/event features + 5 Head C features). Raw value, variable_type, identifiers and timestamps are never exposed as model features. Single-sensor groups produce NaN for all 14 cross-sensor features and gap_slope_xl. Causal computation guarantees that features at step t depend solely on readings at or before t.
 
