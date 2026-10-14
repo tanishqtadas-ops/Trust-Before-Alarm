@@ -1,6 +1,6 @@
 # Phase P3: Raw Alarm, Baselines, and Difficulty Checks Report
 *Generated on: 2026-10-14 18:53:53 UTC*
-*Evaluation dataset: Validation Set (300 scenarios, 1,780 sensors, 1,452 healthy sensor-days)*
+*Evaluation dataset: Validation Set (300 scenarios, 1,780 sensors, 1,453 healthy sensor-days)*
 
 ## 1. Raw Alarm Detector (Appendix A.9)
 ### Baseline Difficulty Breakdown: Raw Alarm Detector (Appendix A.9, k=3.0)
