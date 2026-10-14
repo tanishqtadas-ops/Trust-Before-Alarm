@@ -42,6 +42,11 @@ runs/sanity_batch_100/*
 runs/p3_baselines/*
 !runs/p3_baselines/p3_difficulty_report.md
 !runs/p3_baselines/p3_evaluation_summary.json
+!runs/p4_leakage_benchmark/
+runs/p4_leakage_benchmark/*
+!runs/p4_leakage_benchmark/p4_leakage_and_benchmark_report.md
+!runs/p4_leakage_benchmark/p4_evaluation_summary.json
+!runs/p4_leakage_benchmark/single_feature_separability.csv
 *.parquet
 
 # Scratch

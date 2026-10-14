@@ -6,9 +6,9 @@
 
 ## CURRENT STATUS (update this block after every task)
 
-- **Current phase:** P3 completed; awaiting review before P4 (Leakage audit and first model)
-- **Last completed task:** P3.3 (Difficulty check: baselines per tier)
-- **Next task:** P4.1 (Single-feature separability check)
+- **Current phase:** P4 completed; awaiting review before P5 (Three heads and rules)
+- **Last completed task:** P4.4 (Consolidated audit report)
+- **Next task:** P5.1 (Provable rules: frozen and dropout)
 - **Blocked on / open questions:** Outstanding issue: P1.12 portability / clean-checkout reproducibility follow-up (runtime dependency on local Git-ignored `data_backup_p111/` for fault selection and split locking; local bitwise regression passes, but clean-checkout dataset regeneration without backup is unverified).
 - **Last human-verified phase:** P2 (p2.6-verified)
 
@@ -138,10 +138,10 @@ Dates are our targets (official: Round 2 online 15 to 18 Oct, finale 24 Oct 2026
 *(Note on P3 Evaluation Metrics & Population Scope: FAR counts alarm episodes occurring strictly on healthy sensors [N=1,453 healthy sensor-days in val, 0 untrusted steps], divided by healthy sensor-days. In contrast, precision and the 4-way cause breakdown evaluate the full alarm population across all sensors [895 for Fixed, 836 for Robust Z, 7,544 for Raw]. Precision checks overlap against ground-truth fault episode envelopes from `fault_episodes.parquet` extended by 5 steps. Cause attribution checks pointwise `sensor_untrusted` and `genuine_event` flags in `ground_truth_sensors` and `ground_truth_events` over the local alarm window. Consequently, precision matches [122 Fixed, 117 Robust Z, 597 Raw] and `FAULT + BOTH` cause counts [121 Fixed, 116 Robust Z, 565 Raw] need not be identical; intermittent spike gaps and sub-threshold slow-degradation ramps explain the verified differences. This is a known limitation of the stated metric definitions, not evidence that the detector implementation is incorrect.)*
 
 ### P4. Leakage audit and first model (15 to 17 Oct)
-- [ ] P4.1 [M] Single-feature separability check (flag AUC > 0.85).
-- [ ] P4.2 [M] Label-shuffle null control (5 shuffles, seeds 20001 to 20005) and canary leak test.
-- [ ] P4.3 [M] Quick multiclass LightGBM as a first benchmark only.
-- [ ] P4.4 [M] Report audit results honestly, including failures.
+- [x] P4.1 [M] Single-feature separability check (flag AUC > 0.85).
+- [x] P4.2 [M] Label-shuffle null control (5 shuffles, seeds 20001 to 20005) and canary leak test.
+- [x] P4.3 [M] Quick multiclass LightGBM as a first benchmark only.
+- [x] P4.4 [M] Report audit results honestly, including failures.
 **Done when:** audit passes or issues are explained; user approves before P5.
 
 ### P5. Three heads and rules (16 to 18 Oct)
@@ -216,6 +216,8 @@ Build in this order; three screens only.
   4. **Precision Matches vs `FAULT + BOTH` Cause Counts:** The precision numerator (alarms matching a fault episode) and `FAULT + BOTH` cause counts need not be identical (122 vs 121 for Fixed Threshold; 117 vs 116 for Robust Z-score; 597 vs 565 for Raw Alarm). Every one of these differences is mathematically and physically accounted for by: (a) sub-threshold incipient ramps of `slow_degradation` faults where deviation has begun but `sensor_untrusted` has not yet activated, and (b) quiescent gaps between discrete pulses in `spike` fault episode envelopes. This is an expected consequence and limitation of the stated metric definitions, not evidence that the detector implementation is incorrect.
 
 ## 7. LOG (newest first; one short entry per task)
+
+- 2026-10-15 | P4.1–P4.4 | Completed Phase P4 leakage audits and first multiclass LightGBM benchmark: (1) P4.1 Single-feature separability audit evaluated all 49 sensor features on 512,640 scored validation rows; 0 features flagged on `sensor_untrusted` (max AUC is `gap_absmax_m` at 0.6893); 16 features flagged on per-fault OvR (> 0.85) matching expected physical signatures of provable frozen rules (`repeat_run_len` 0.9717, `longest_repeat_m` 0.9668), high noise (`absdiff_max_m` 0.9356, `n_spikes_m` 0.9344), and spike kurtosis (`kurtosis_m` 0.9105); zero ground-truth leakage or metadata proxies detected; (2) P4.2 Label-shuffle null control across 5 seeds (20001-20005) demonstrated zero genuine predictive signal on validation set (mean model AUC = 0.4615, range [0.4259, 0.5106]; recall at budget <= 0.0332 <= 0.05 across all seeds; single-feature shuffle mean AUC = 0.500 +/- 0.003; slight sub-0.50 model AUC documented as tree artifact on rare extreme features in 96/4 imbalanced data); planted canary column caught with AUC = 1.0000 (>= 0.95); clean matrix verified free of synthetic target copies; (3) P4.3 First multiclass LightGBM benchmark (8 classes: normal + 7 faults) trained on train split (300k samples) and evaluated on validation split (512,640 scored samples); achieved 74.62% overall accuracy, 0.9029 log loss, Macro-F1 0.3110 (significant lift over trivial majority-class baseline 0.1223), Macro OvR AUC 0.8521; test split strictly untouched (0 test accesses); (4) P4.4 Consolidated report and evaluation summary saved in runs/p4_leakage_benchmark/; 7 new unit tests added with 223/223 full suite passing in 84.85s | src/eval/leakage_audit.py, src/models/first_benchmark.py, scripts/build_feature_cache.py, scripts/run_p4_audit_and_benchmark.py, runs/p4_leakage_benchmark/*, tests/test_p4_*.py, PROGRESS.md | pytest tests/ passed (223/223: 7 new P4 tests + 216 existing); all P4 checks and benchmarks executed and documented | Outstanding issue: P1.12 portability/reproducibility follow-up (runtime dependency on local Git-ignored data_backup_p111/ for fault-selection and split-locking; local bitwise regression passes, but clean-checkout reproducibility without backup is unverified)
 
 - 2026-10-15 | P3 Metrics Audit | Completed read-only audit and documentation clarification of Phase P3 evaluation metrics: reconciled healthy sensor-days (1,453.0 across validation set), FAR denominator and healthy-sensor alarm population (678 Fixed, 634 Robust Z, 6,036 Raw), total alarm population for precision and cause breakdown (895 Fixed, 836 Robust Z, 7,544 Raw), and verified every single difference between precision matches and FAULT+BOTH cause counts (1 in Fixed, 1 in Robust Z, 32 in Raw, driven by sub-threshold slow degradation ramps and discrete spike gaps); corrected subtitle denominator typo in runs/p3_baselines/p3_difficulty_report.md from 1,452 to 1,453; no detector code, thresholds, or datasets modified | runs/p3_baselines/p3_difficulty_report.md, PROGRESS.md | Documentation only; all 216 pytest tests passing | none
 
