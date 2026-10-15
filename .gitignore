@@ -56,6 +56,7 @@ runs/p4_revalidation/*
 !runs/p4_revalidation/p4_null_control_diagnostic_report.md
 !runs/p4_revalidation/p4_null_control_protocol_review.md
 !runs/p4_revalidation/p4_matched_binary_baseline_report.md
+!runs/p4_revalidation/p4_paired_seed_diagnostic_report.md
 *.parquet
 
 # Scratch

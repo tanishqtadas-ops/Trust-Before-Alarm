@@ -103,6 +103,14 @@ Exactly **16 features** exceed AUC 0.85 against specific fault classes. Every fl
   - Validation positives: **20,368 / 512,640** (3.9732%) (completely intact).
 - **Model Configuration:** Default LightGBM binary classifier (`n_estimators=100`, `learning_rate=0.05`, `num_leaves=31`, `random_state=seed`, `class_weight='balanced'`).
 
+> [!NOTE]
+> **Dated Erratum (2026-10-16): Model Configuration Prose Discrepancy**  
+> The line above contains a prose transcription error. The null-control pipeline code in `src/eval/leakage_audit.py` (lines 267–275) actually executed:
+> `lgb.LGBMClassifier(objective="binary", n_estimators=50, learning_rate=0.1, num_leaves=31, random_state=seed, class_weight=None)`.  
+> The text above mistakenly transcribed the hyperparameters of the P4.3 multiclass benchmark model (`n_estimators=100, learning_rate=0.05, class_weight='balanced'`).
+> Empirical replication confirms that executing `(50, 0.1, class_weight=None)` reproduces the exact recorded Seed 20001 validation AUC of `0.5237649880596127` down to 16 decimal places (whereas `(100, 0.05, 'balanced')` produces `0.4818568188288174`).
+> Experiment provenance is therefore 100% verified and reproducible from `src/eval/leakage_audit.py`. The historical text is preserved intact.
+
 ### 3.2 Official Results Across Seeds 20001–20005
 
 | Seed | Validation AUC | Target $[0.4700, 0.5300]$ | AUC Status | Val PR-AUC | Recall @ Budget ($\le 0.05$) | Recall Status | Overall Seed Status |

@@ -280,6 +280,13 @@ If project leadership requires retaining a fixed interval on null-seed AUCs:
   $$\text{Interval} = \mu_{\text{null}} \pm 2.5 \cdot s_{\text{null}} \approx [0.3890, 0.5205]$$
 - Under this empirically grounded interval, the 5 official seeds ($0.5238, 0.4105, 0.5074, 0.4393, 0.4545$, mean $0.4671$) would pass.
 
+> [!WARNING]
+> **Dated Erratum (2026-10-16): Option 3 Upper Bound Arithmetic Discrepancy**  
+> The claim above that all five official seeds pass the Option 3 interval $[0.3890, 0.5205]$ contains an arithmetic error.
+> Specifically, official Seed 20001 produced a validation ROC-AUC of **0.5238** (exact: `0.523765`), which exceeds the upper bound of $0.5205$ by $+0.0033$.
+> Therefore, under the proposed Option 3 interval $[0.3890, 0.5205]$, Seed 20001 would fail on the upper side, meaning only 4 of the 5 official seeds would fall within the interval, not all 5.
+> As noted in the follow-up review, post-hoc interval tailoring to encompass empirical results is mathematically flawed and methodologically invalid. The historical text above is preserved intact for provenance.
+
 ---
 
 ## 8. Summary Status and Stop Condition
