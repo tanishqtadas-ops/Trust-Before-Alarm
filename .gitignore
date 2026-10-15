@@ -47,6 +47,12 @@ runs/p4_leakage_benchmark/*
 !runs/p4_leakage_benchmark/p4_leakage_and_benchmark_report.md
 !runs/p4_leakage_benchmark/p4_evaluation_summary.json
 !runs/p4_leakage_benchmark/single_feature_separability.csv
+!runs/p4_revalidation/
+runs/p4_revalidation/*
+!runs/p4_revalidation/p4_revalidation_report.md
+!runs/p4_revalidation/p4_leakage_and_benchmark_report.md
+!runs/p4_revalidation/p4_evaluation_summary.json
+!runs/p4_revalidation/single_feature_separability.csv
 *.parquet
 
 # Scratch
