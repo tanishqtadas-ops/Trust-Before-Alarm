@@ -1,42 +1,42 @@
 {
   "raw_alarm": {
-    "overall_far": 4.154163799036477,
-    "overall_recall": 0.638755980861244,
+    "overall_far": 4.242257398485891,
+    "overall_recall": 0.6722488038277512,
     "causes": {
-      "EVENT": 1891,
-      "FAULT": 372,
-      "BOTH": 193,
-      "NEITHER": 5088
+      "EVENT": 1684,
+      "FAULT": 407,
+      "BOTH": 142,
+      "NEITHER": 5520
     },
     "tiers": {
       "easy": {
-        "far": 3.921225382932166,
-        "recall": 0.6578947368421053,
+        "far": 4.253829321663019,
+        "recall": 0.6447368421052632,
         "causes": {
-          "EVENT": 445,
-          "FAULT": 69,
-          "BOTH": 34,
-          "NEITHER": 1550
+          "EVENT": 406,
+          "FAULT": 95,
+          "BOTH": 19,
+          "NEITHER": 1775
         }
       },
       "medium": {
-        "far": 4.304900181488203,
-        "recall": 0.6235955056179775,
+        "far": 4.417422867513611,
+        "recall": 0.6741573033707865,
         "causes": {
-          "EVENT": 575,
-          "FAULT": 172,
-          "BOTH": 70,
-          "NEITHER": 2221
+          "EVENT": 537,
+          "FAULT": 181,
+          "BOTH": 55,
+          "NEITHER": 2356
         }
       },
       "hard": {
-        "far": 4.206741573033708,
-        "recall": 0.6463414634146342,
+        "far": 4.013483146067416,
+        "recall": 0.6829268292682927,
         "causes": {
-          "EVENT": 871,
+          "EVENT": 741,
           "FAULT": 131,
-          "BOTH": 89,
-          "NEITHER": 1317
+          "BOTH": 68,
+          "NEITHER": 1389
         }
       }
     }
@@ -81,6 +81,6 @@
   },
   "sanity_check": {
     "status": "BENCHMARK_DIFFICULTY_VALIDATED",
-    "message": "Benchmark difficulty progression validated: baseline is not near-perfect on HARD (HARD recall = 64.6%), and faults remain distinguishable on EASY (EASY recall = 65.8%). No simulator adjustment required."
+    "message": "Benchmark difficulty progression validated: baseline is not near-perfect on HARD (HARD recall = 68.3%), and faults remain distinguishable on EASY (EASY recall = 64.5%). No simulator adjustment required."
   }
 }

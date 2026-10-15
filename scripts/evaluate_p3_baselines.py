@@ -114,7 +114,7 @@ def run_p3_evaluation():
         f"**Cause Breakdown (Overall):** `{z_res['overall']['cause_counts']}`",
         "",
         "## 4. Key Takeaways & Sanity Check Conclusion",
-        "1. **Conventional Raw Alarm (Appendix A.9, k=3.0):** Achieves 63.88% overall fault recall but produces an extreme false-alarm rate of 4.14 episodes/healthy sensor-day (~8.3x over the 0.5 budget), with 5,088 'NEITHER' alarms driven by normal 24-hour diurnal temperature cycles.",
+        f"1. **Conventional Raw Alarm (Appendix A.9, k=3.0, Causal 8-Hour Rolling Window):** Achieves {raw_res['overall']['episode_recall']*100:.2f}% overall fault recall with false-alarm rate of {raw_res['overall']['false_alarm_rate']:.4f} episodes/healthy sensor-day (budget <= 0.50 ep/day), with cause breakdown {raw_res['overall']['cause_counts']}.",
         f"2. **Fixed Threshold Baseline at Budget (k={fixed_k:.1f}):** Meets the false-alarm budget (FAR = {fixed_res['overall']['false_alarm_rate']:.4f} <= 0.50 ep/day) with overall episode recall of {fixed_res['overall']['episode_recall']*100:.2f}%.",
         f"3. **Robust Z-Score Baseline at Budget (z={z_th:.1f}):** Meets the false-alarm budget (FAR = {z_res['overall']['false_alarm_rate']:.4f} <= 0.50 ep/day) with overall episode recall of {z_res['overall']['episode_recall']*100:.2f}%.",
         "4. **Difficulty Check (P3.3):**",

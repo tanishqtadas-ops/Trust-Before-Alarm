@@ -1,5 +1,5 @@
 # Phase P3: Raw Alarm, Baselines, and Difficulty Checks Report
-*Generated on: 2026-10-14 18:53:53 UTC*
+*Generated on: 2026-10-15 17:37:18 UTC*
 *Evaluation dataset: Validation Set (300 scenarios, 1,780 sensors, 1,453 healthy sensor-days)*
 
 ## 1. Raw Alarm Detector (Appendix A.9)
@@ -7,15 +7,15 @@
 
 | Tier | Scenarios | Healthy Days | FA Episodes | FAR (ep/day) | Fault Episodes | Detected | Recall (Ep) | Recall (Row) | Precision |
 |---|---|---|---|---|---|---|---|---|---|
-| **EASY** | 93 | 457 | 1792 | 3.9212 | 76 | 50 | 65.79% | 44.54% | 5.05% |
-| **MEDIUM** | 116 | 551 | 2372 | 4.3049 | 178 | 111 | 62.36% | 29.78% | 8.89% |
-| **HARD** | 91 | 445 | 1872 | 4.2067 | 164 | 106 | 64.63% | 33.04% | 9.18% |
-| **OVERALL** | 300 | 1453 | 6036 | 4.1542 | 418 | 267 | 63.88% | 33.73% | 7.91% |
+| **EASY** | 93 | 457 | 1944 | 4.2538 | 76 | 49 | 64.47% | 19.74% | 5.19% |
+| **MEDIUM** | 116 | 551 | 2434 | 4.4174 | 178 | 120 | 67.42% | 12.03% | 8.28% |
+| **HARD** | 91 | 445 | 1786 | 4.0135 | 164 | 112 | 68.29% | 14.15% | 8.67% |
+| **OVERALL** | 300 | 1453 | 6164 | 4.2423 | 418 | 281 | 67.22% | 14.26% | 7.48% |
 
 **Sanity Check Status:** `BENCHMARK_DIFFICULTY_VALIDATED`
-*Benchmark difficulty progression validated: baseline is not near-perfect on HARD (HARD recall = 64.6%), and faults remain distinguishable on EASY (EASY recall = 65.8%). No simulator adjustment required.*
+*Benchmark difficulty progression validated: baseline is not near-perfect on HARD (HARD recall = 68.3%), and faults remain distinguishable on EASY (EASY recall = 64.5%). No simulator adjustment required.*
 
-**Cause Breakdown (Overall):** `{'EVENT': 1891, 'FAULT': 372, 'BOTH': 193, 'NEITHER': 5088}`
+**Cause Breakdown (Overall):** `{'EVENT': 1684, 'FAULT': 407, 'BOTH': 142, 'NEITHER': 5520}`
 
 ## 2. Fixed Threshold Detector Baseline (P3.2)
 ### Baseline Difficulty Breakdown: Fixed Threshold Baseline (k=12.2)
@@ -48,10 +48,10 @@
 **Cause Breakdown (Overall):** `{'EVENT': 383, 'FAULT': 72, 'BOTH': 44, 'NEITHER': 337}`
 
 ## 4. Key Takeaways & Sanity Check Conclusion
-1. **Conventional Raw Alarm (Appendix A.9, k=3.0):** Achieves 63.88% overall fault recall but produces an extreme false-alarm rate of 4.14 episodes/healthy sensor-day (~8.3x over the 0.5 budget), with 5,088 'NEITHER' alarms driven by normal 24-hour diurnal temperature cycles.
+1. **Conventional Raw Alarm (Appendix A.9, k=3.0, Causal 8-Hour Rolling Window):** Achieves 67.22% overall fault recall with false-alarm rate of 4.2423 episodes/healthy sensor-day (budget <= 0.50 ep/day), with cause breakdown {'EVENT': 1684, 'FAULT': 407, 'BOTH': 142, 'NEITHER': 5520}.
 2. **Fixed Threshold Baseline at Budget (k=12.2):** Meets the false-alarm budget (FAR = 0.4666 <= 0.50 ep/day) with overall episode recall of 13.40%.
 3. **Robust Z-Score Baseline at Budget (z=5.0):** Meets the false-alarm budget (FAR = 0.4363 <= 0.50 ep/day) with overall episode recall of 14.83%.
 4. **Difficulty Check (P3.3):**
    - On HARD scenarios, baselines achieve only 10.37% (Fixed) and 12.80% (Z-Score) recall. Baselines are far from near-perfect (< 95%), confirming data is NOT too easy.
-   - On EASY scenarios, unconstrained raw alarms detect 65.79% of faults, proving faults are readily observable physically.
+   - On EASY scenarios, unconstrained raw alarms detect 64.47% of faults, proving faults are readily observable physically.
    - The benchmark difficulty progression across EASY, MEDIUM, and HARD is sound. No simulator adjustment is necessary.

@@ -12,6 +12,7 @@ Specifications locked from Appendix A.9 and config/alarm.yaml:
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 from src.utils.config import get_config_dir, load_yaml
 
@@ -68,11 +69,93 @@ def compute_robust_spread(values: np.ndarray, mad_factor: float = 1.4826, epsilo
     """
     valid = values[~np.isnan(values)]
     if len(valid) == 0:
-        return 0.0, epsilon
+        return np.nan, epsilon
     med = float(np.median(valid))
     mad = float(np.median(np.abs(valid - med)))
     spread = max(float(mad_factor * mad), epsilon)
     return med, spread
+
+
+def compute_causal_rolling_bands(
+    values: np.ndarray,
+    window_steps: int = 480,
+    min_periods: int = 3,
+    mad_factor: float = 1.4826,
+    epsilon: float = 1e-6,
+    threshold_multiplier: float = 3.0,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Compute causal 8-hour rolling median, robust spread, and alarm bounds per Appendix A.9.
+    
+    At step t, the reference window comprises up to window_steps (480) past and current
+    readings: tau in [max(0, t - window_steps + 1), t]. No future readings are used.
+    
+    Args:
+        values: 1D array of sensor readings of length N.
+        window_steps: Causal window length in steps (480 for 8 hours).
+        min_periods: Minimum valid readings to form an estimate (default 3).
+        mad_factor: Scale factor for normal consistency (1.4826).
+        epsilon: Positive floor to prevent zero spread on constant series (1e-6).
+        threshold_multiplier: Multiplier for robust spread (3.0).
+        
+    Returns:
+        (meds, spreads, lower_bounds, upper_bounds) as length N float arrays.
+    """
+    n = len(values)
+    meds = np.full(n, np.nan, dtype=float)
+    spreads = np.full(n, np.nan, dtype=float)
+
+    if n >= window_steps:
+        win_view = sliding_window_view(values, window_steps)  # shape (n - window_steps + 1, window_steps)
+        m = np.full(len(win_view), np.nan, dtype=float)
+        mad = np.full(len(win_view), np.nan, dtype=float)
+
+        nan_rows = np.isnan(win_view).any(axis=1)
+        if not np.any(nan_rows):
+            # Fast vectorized calculation when all readings in windows are finite
+            m = np.median(win_view, axis=1)
+            d = np.abs(win_view - m[:, None])
+            mad = np.median(d, axis=1)
+        else:
+            clean_idx = np.where(~nan_rows)[0]
+            if len(clean_idx) > 0:
+                clean_win = win_view[clean_idx]
+                clean_m = np.median(clean_win, axis=1)
+                clean_d = np.abs(clean_win - clean_m[:, None])
+                clean_mad = np.median(clean_d, axis=1)
+                m[clean_idx] = clean_m
+                mad[clean_idx] = clean_mad
+
+            nan_idx = np.where(nan_rows)[0]
+            if len(nan_idx) > 0:
+                nan_win = win_view[nan_idx]
+                valid_counts = np.sum(~np.isnan(nan_win), axis=1)
+                ok_mask = valid_counts >= min_periods
+                if np.any(ok_mask):
+                    sub_win = nan_win[ok_mask]
+                    sub_m = np.nanmedian(sub_win, axis=1)
+                    sub_d = np.abs(sub_win - sub_m[:, None])
+                    sub_mad = np.nanmedian(sub_d, axis=1)
+                    actual_ok_idx = nan_idx[ok_mask]
+                    m[actual_ok_idx] = sub_m
+                    mad[actual_ok_idx] = sub_mad
+
+        sp = np.where(np.isnan(mad), np.nan, np.maximum(mad_factor * mad, epsilon))
+        meds[window_steps - 1 :] = m
+        spreads[window_steps - 1 :] = sp
+
+    # Early warm-up steps (t < window_steps - 1)
+    for t in range(min(n, window_steps - 1)):
+        w = values[: t + 1]
+        valid = w[~np.isnan(w)]
+        if len(valid) >= min_periods:
+            m_t = float(np.median(valid))
+            mad_t = float(np.median(np.abs(valid - m_t)))
+            meds[t] = m_t
+            spreads[t] = max(mad_factor * mad_t, epsilon)
+
+    low = meds - threshold_multiplier * spreads
+    high = meds + threshold_multiplier * spreads
+    return meds, spreads, low, high
 
 
 def detect_episodes_from_bounds(
@@ -105,6 +188,7 @@ def detect_episodes_from_bounds(
     is_low = (values < lower_bounds) if isinstance(lower_bounds, np.ndarray) else (values < lower_bounds)
     is_high = (values > upper_bounds) if isinstance(upper_bounds, np.ndarray) else (values > upper_bounds)
     is_outside = (~np.isnan(values)) & (is_low | is_high)
+    is_inside = (~np.isnan(values)) & (~is_low) & (~is_high)
 
     raw_episodes: List[Tuple[int, int]] = []
     active = False
@@ -128,13 +212,16 @@ def detect_episodes_from_bounds(
             if is_outside[t]:
                 last_outside = t
                 inside_count = 0
-            else:
+            elif is_inside[t]:
                 inside_count += 1
                 if inside_count >= consecutive_inside_to_end:
                     active = False
                     raw_episodes.append((ep_start, last_outside))
                     inside_count = 0
                     outside_count = 0
+            else:
+                # Missing reading (NaN) interrupts consecutive streak inside
+                inside_count = 0
 
     if active:
         raw_episodes.append((ep_start, last_outside))
@@ -158,16 +245,17 @@ def detect_episodes_from_bounds(
 class RawAlarmDetector:
     """Conventional threshold baseline detector specified in Appendix A.9.
     
-    Reading outside [8-hour median +/- 3 x robust spread over those 8 hours].
+    Reading outside [8-hour median +/- 3 x robust spread of reading levels over those 8 hours].
+    Uses a causal eight-hour reference window (up to 480 past and current readings).
     Starts at 1 reading outside; ends after 10 consecutive inside; merge gap 5.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None, mode: str = "reference"):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, mode: str = "rolling"):
         """Initialize detector with parameters from config/alarm.yaml.
         
         Args:
             config: Optional alarm configuration dictionary.
-            mode: 'reference' (8-hour warm-up window [0, 480)) or 'rolling' (causal 480-step window).
+            mode: 'rolling' (causal 480-step window per Appendix A.9) or 'reference' (legacy static warmup).
         """
         if config is None:
             cfg_path = get_config_dir() / "alarm.yaml"
@@ -196,13 +284,30 @@ class RawAlarmDetector:
         if missing:
             raise ValueError(f"Missing required observable columns: {sorted(missing)}")
 
-    def compute_sensor_bands(self, values: np.ndarray) -> Tuple[float, float, float, float]:
-        """Compute reference baseline median, robust spread, lower bound, upper bound."""
-        warmup = values[:self.baseline_window_steps]
-        med, spread = compute_robust_spread(warmup, mad_factor=self.robust_spread_mad_factor)
-        low = med - self.threshold_multiplier * spread
-        high = med + self.threshold_multiplier * spread
-        return med, spread, low, high
+    def compute_sensor_bands(self, values: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Compute baseline median, robust spread, lower bound, and upper bound.
+        
+        In 'rolling' mode (Appendix A.9), computes causal 8-hour rolling estimates.
+        In 'reference' mode (legacy), computes scalar bands from the 480-step warmup.
+        """
+        if self.mode == "rolling":
+            return compute_causal_rolling_bands(
+                values,
+                window_steps=self.baseline_window_steps,
+                min_periods=3,
+                mad_factor=self.robust_spread_mad_factor,
+                epsilon=1e-6,
+                threshold_multiplier=self.threshold_multiplier,
+            )
+        elif self.mode == "reference":
+            warmup = values[: self.baseline_window_steps]
+            med, spread = compute_robust_spread(warmup, mad_factor=self.robust_spread_mad_factor)
+            low = med - self.threshold_multiplier * spread
+            high = med + self.threshold_multiplier * spread
+            n = len(values)
+            return np.full(n, med), np.full(n, spread), np.full(n, low), np.full(n, high)
+        else:
+            raise ValueError(f"Unknown mode: {self.mode}. Must be 'rolling' or 'reference'.")
 
     def detect_episodes(self, observables_df: pd.DataFrame, start_step: int = 480) -> pd.DataFrame:
         """Detect raw alarm episodes across all scenarios and sensors in observables_df.
@@ -226,36 +331,17 @@ class RawAlarmDetector:
             vals = grp_sorted["value"].to_numpy(dtype=float)
             timestamps = grp_sorted["timestamp"].to_numpy()
 
-            med, spread, low, high = self.compute_sensor_bands(vals)
+            meds, spreads, low, high = self.compute_sensor_bands(vals)
 
-            if self.mode == "reference":
-                raw_eps = detect_episodes_from_bounds(
-                    vals,
-                    lower_bounds=low,
-                    upper_bounds=high,
-                    start_step=start_step,
-                    persistence_start=self.persistence_start,
-                    consecutive_inside_to_end=self.consecutive_inside_to_end,
-                    merge_gap_max=self.episode_merge_gap_max,
-                )
-            elif self.mode == "rolling":
-                s_vals = pd.Series(vals)
-                roll_med = s_vals.rolling(self.baseline_window_steps, min_periods=10).median()
-                roll_mad = (s_vals - roll_med).abs().rolling(self.baseline_window_steps, min_periods=10).median()
-                roll_spread = np.maximum(self.robust_spread_mad_factor * roll_mad, 1e-6)
-                roll_low = (roll_med - self.threshold_multiplier * roll_spread).to_numpy()
-                roll_high = (roll_med + self.threshold_multiplier * roll_spread).to_numpy()
-                raw_eps = detect_episodes_from_bounds(
-                    vals,
-                    lower_bounds=roll_low,
-                    upper_bounds=roll_high,
-                    start_step=start_step,
-                    persistence_start=self.persistence_start,
-                    consecutive_inside_to_end=self.consecutive_inside_to_end,
-                    merge_gap_max=self.episode_merge_gap_max,
-                )
-            else:
-                raise ValueError(f"Unknown mode: {self.mode}. Must be 'reference' or 'rolling'.")
+            raw_eps = detect_episodes_from_bounds(
+                vals,
+                lower_bounds=low,
+                upper_bounds=high,
+                start_step=start_step,
+                persistence_start=self.persistence_start,
+                consecutive_inside_to_end=self.consecutive_inside_to_end,
+                merge_gap_max=self.episode_merge_gap_max,
+            )
 
             for s_idx, e_idx in raw_eps:
                 t_start = int(timestamps[s_idx])
@@ -272,10 +358,10 @@ class RawAlarmDetector:
                     "start_step": t_start,
                     "end_step": t_end,
                     "duration": t_end - t_start + 1,
-                    "median_base": med,
-                    "spread_base": spread,
-                    "lower_bound": low,
-                    "upper_bound": high,
+                    "median_base": float(meds[s_idx]),
+                    "spread_base": float(spreads[s_idx]),
+                    "lower_bound": float(low[s_idx]),
+                    "upper_bound": float(high[s_idx]),
                     "min_value": min_v,
                     "max_value": max_v,
                 })
