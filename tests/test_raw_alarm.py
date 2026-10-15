@@ -377,7 +377,7 @@ def test_raw_alarm_degenerate_and_missing_data():
     """Verify graceful handling of constant flatline, all-NaNs, and intermittent dropouts."""
     detector = RawAlarmDetector()
 
-    # 1. Constant flatline: MAD is 0, floored at epsilon=1e-6, no false alarms
+    # 1. Constant flatline: MAD is 0, spread is 0.0, no false alarms
     df_const = pd.DataFrame({
         "scenario_id": ["scen_const"] * 600,
         "group_id": ["grp_1"] * 600,
@@ -414,4 +414,87 @@ def test_raw_alarm_degenerate_and_missing_data():
     })
     eps_drop = detector.detect_episodes(df_drop)
     assert len(eps_drop) == 0
+
+
+def test_raw_alarm_affine_unit_invariance_constant_and_perturbations():
+    """Verify raw alarm episode boundaries are strictly unit-invariant across C, F, and Affine."""
+    detector = RawAlarmDetector()
+    n = 600
+
+    # 1. Truly constant series: zero alarms in C, F, and arbitrary affine scaling
+    vals_c_const = np.full(n, 20.0)
+    vals_f_const = vals_c_const * 1.8 + 32.0
+    vals_aff_const = vals_c_const * 4.2 - 15.7
+    vals_aff2_const = vals_c_const * 0.05 + 100.0
+
+    for name, v in [("c", vals_c_const), ("f", vals_f_const), ("aff", vals_aff_const), ("aff2", vals_aff2_const)]:
+        df = pd.DataFrame({
+            "scenario_id": [f"scen_{name}"] * n,
+            "group_id": ["grp_1"] * n,
+            "sensor_id": ["s_1"] * n,
+            "timestamp": list(range(n)),
+            "value": v,
+        })
+        eps = detector.detect_episodes(df)
+        assert len(eps) == 0, f"Expected 0 alarms on constant series for {name}, got {len(eps)}"
+
+    # 2. Small nonzero perturbations on constant baseline (including 2e-6 where fixed floor previously broke)
+    perturbations = [
+        1e-9, 1e-7, 2e-6, 5e-6, 1e-5, 1e-3, 0.1, 2.0,
+        -2.0, -0.1, -1e-3, -1e-5, -5e-6, -2e-6, -1e-7, -1e-9,
+    ]
+    for delta in perturbations:
+        v_c = np.full(n, 20.0)
+        v_c[500] += delta
+
+        v_f = v_c * 1.8 + 32.0
+        v_aff = v_c * 4.2 - 15.7
+
+        df_c = pd.DataFrame({"scenario_id": ["s"] * n, "group_id": ["g"] * n, "sensor_id": ["s1"] * n, "timestamp": list(range(n)), "value": v_c})
+        df_f = pd.DataFrame({"scenario_id": ["s"] * n, "group_id": ["g"] * n, "sensor_id": ["s1"] * n, "timestamp": list(range(n)), "value": v_f})
+        df_aff = pd.DataFrame({"scenario_id": ["s"] * n, "group_id": ["g"] * n, "sensor_id": ["s1"] * n, "timestamp": list(range(n)), "value": v_aff})
+
+        eps_c = detector.detect_episodes(df_c)
+        eps_f = detector.detect_episodes(df_f)
+        eps_aff = detector.detect_episodes(df_aff)
+
+        t_c = [(r.start_step, r.end_step) for r in eps_c.itertuples()]
+        t_f = [(r.start_step, r.end_step) for r in eps_f.itertuples()]
+        t_aff = [(r.start_step, r.end_step) for r in eps_aff.itertuples()]
+
+        assert t_c == t_f == t_aff, f"Mismatch at delta={delta}: C={t_c}, F={t_f}, Aff={t_aff}"
+        # A single perturbation at 500 must trigger an alarm episode spanning [500, 500]
+        assert t_c == [(500, 500)], f"Expected [(500, 500)] at delta={delta}, got {t_c}"
+
+
+def test_raw_alarm_affine_unit_invariance_nearly_constant_noise():
+    """Verify nearly constant series with noise levels down to 1e-12 preserve identical episode boundaries."""
+    detector = RawAlarmDetector()
+    n = 800
+
+    np.random.seed(4242)
+    for noise_scale in [1e-12, 1e-10, 1e-8, 1e-5, 1e-3, 0.05]:
+        noise = np.random.normal(0, noise_scale, n)
+        v_c = 20.0 + noise
+        # Inject positive and negative impulses well above 3*MAD
+        v_c[520] += 6.0 * noise_scale
+        v_c[640] -= 6.0 * noise_scale
+
+        v_f = v_c * 1.8 + 32.0
+        v_aff = v_c * 3.7 - 8.9
+
+        df_c = pd.DataFrame({"scenario_id": ["s"] * n, "group_id": ["g"] * n, "sensor_id": ["s1"] * n, "timestamp": list(range(n)), "value": v_c})
+        df_f = pd.DataFrame({"scenario_id": ["s"] * n, "group_id": ["g"] * n, "sensor_id": ["s1"] * n, "timestamp": list(range(n)), "value": v_f})
+        df_aff = pd.DataFrame({"scenario_id": ["s"] * n, "group_id": ["g"] * n, "sensor_id": ["s1"] * n, "timestamp": list(range(n)), "value": v_aff})
+
+        eps_c = detector.detect_episodes(df_c)
+        eps_f = detector.detect_episodes(df_f)
+        eps_aff = detector.detect_episodes(df_aff)
+
+        t_c = [(r.start_step, r.end_step) for r in eps_c.itertuples()]
+        t_f = [(r.start_step, r.end_step) for r in eps_f.itertuples()]
+        t_aff = [(r.start_step, r.end_step) for r in eps_aff.itertuples()]
+
+        assert t_c == t_f == t_aff, f"Noise scale {noise_scale} boundary mismatch: C={t_c}, F={t_f}, Aff={t_aff}"
+
 

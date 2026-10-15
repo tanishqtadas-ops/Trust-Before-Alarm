@@ -81,7 +81,7 @@ def compute_causal_rolling_bands(
     window_steps: int = 480,
     min_periods: int = 3,
     mad_factor: float = 1.4826,
-    epsilon: float = 1e-6,
+    epsilon: float = 0.0,
     threshold_multiplier: float = 3.0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Compute causal 8-hour rolling median, robust spread, and alarm bounds per Appendix A.9.
@@ -94,7 +94,7 @@ def compute_causal_rolling_bands(
         window_steps: Causal window length in steps (480 for 8 hours).
         min_periods: Minimum valid readings to form an estimate (default 3).
         mad_factor: Scale factor for normal consistency (1.4826).
-        epsilon: Positive floor to prevent zero spread on constant series (1e-6).
+        epsilon: Non-negative floor on robust spread (default 0.0 for strict affine invariance).
         threshold_multiplier: Multiplier for robust spread (3.0).
         
     Returns:
@@ -296,12 +296,12 @@ class RawAlarmDetector:
                 window_steps=self.baseline_window_steps,
                 min_periods=3,
                 mad_factor=self.robust_spread_mad_factor,
-                epsilon=1e-6,
+                epsilon=0.0,
                 threshold_multiplier=self.threshold_multiplier,
             )
         elif self.mode == "reference":
             warmup = values[: self.baseline_window_steps]
-            med, spread = compute_robust_spread(warmup, mad_factor=self.robust_spread_mad_factor)
+            med, spread = compute_robust_spread(warmup, mad_factor=self.robust_spread_mad_factor, epsilon=0.0)
             low = med - self.threshold_multiplier * spread
             high = med + self.threshold_multiplier * spread
             n = len(values)

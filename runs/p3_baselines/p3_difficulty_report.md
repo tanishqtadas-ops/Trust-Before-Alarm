@@ -1,5 +1,5 @@
 # Phase P3: Raw Alarm, Baselines, and Difficulty Checks Report
-*Generated on: 2026-10-15 17:37:18 UTC*
+*Generated on: 2026-10-15 18:12:31 UTC*
 *Evaluation dataset: Validation Set (300 scenarios, 1,780 sensors, 1,453 healthy sensor-days)*
 
 ## 1. Raw Alarm Detector (Appendix A.9)
@@ -15,7 +15,33 @@
 **Sanity Check Status:** `BENCHMARK_DIFFICULTY_VALIDATED`
 *Benchmark difficulty progression validated: baseline is not near-perfect on HARD (HARD recall = 68.3%), and faults remain distinguishable on EASY (EASY recall = 64.5%). No simulator adjustment required.*
 
-**Cause Breakdown (Overall):** `{'EVENT': 1684, 'FAULT': 407, 'BOTH': 142, 'NEITHER': 5520}`
+**Cause Breakdown (Overall):** `{'EVENT': 1684, 'FAULT': 407, 'BOTH': 142, 'NEITHER': 5520}` (Sum = 7,753 total episodes)
+
+### Historical Comparison: Corrected Appendix A.9 Detector vs. Obsolete Static Warmup Baseline
+
+| Metric | Corrected Appendix A.9 Detector (Causal 8h Rolling Window) | Obsolete Earlier Detector (`8dbfcd2` Static Warmup Window) |
+|---|:---:|:---:|
+| **Total Alarm Episodes** | **7,753** | **7,544** |
+| **False-Alarm Episodes (Healthy Days)** | **6,164** | **6,036** |
+| **False-Alarm Rate (FAR)** | **4.2423 ep / healthy sensor-day** | **4.1542 ep / healthy sensor-day** |
+| **FAR Budget Target** | $\le 0.50$ ep/day | $\le 0.50$ ep/day |
+| **Fault Episode Recall (Overall)** | **67.22%** (281 / 418) | **63.88%** (267 / 418) |
+| • EASY Tier Recall | **64.47%** (49 / 76) | **65.79%** (50 / 76) |
+| • MEDIUM Tier Recall | **67.42%** (120 / 178) | **62.36%** (111 / 178) |
+| • HARD Tier Recall | **68.29%** (112 / 164) | **64.63%** (106 / 164) |
+| **Row-level Fault Recall** | **14.26%** | **33.73%** |
+| **Episode Fault Precision** | **7.48%** | **7.91%** |
+| **Alarm Cause Breakdown** | | |
+| • `EVENT` | 1,684 (21.72%) | 1,891 (25.07%) |
+| • `FAULT` | 407 (5.25%) | 372 (4.93%) |
+| • `BOTH` | 142 (1.83%) | 193 (2.56%) |
+| • `NEITHER` | 5,520 (71.20%) | 5,088 (67.44%) |
+| • **Total Sum of Causes** | **7,753 (100.0%)** | **7,544 (100.0%)** |
+
+### Evaluation Definitions & Matching Rules
+- **Fault Episode Detection Interval**: An alarm episode $[ep\_s, ep\_e]$ is scored as detecting a ground truth fault episode $[t_{\text{start}}, t_{\text{end}}]$ if it has a non-empty overlap with $[t_{\text{start}} - 5, t_{\text{end}} + 5]$ (evaluated by `src/eval/alarm_metrics.py` as $\max(t_{\text{start}} - 5, ep\_s) \le \min(t_{\text{end}} + 5, ep\_e)$). Both detector versions evaluated here use this exact rule.
+- **Healthy Sensor-Days Denominator**: 1,453 healthy sensor-days (sensors with no active fault during the 1,440-minute scored window).
+- **Mutually Exclusive Cause Attribution**: Evaluated over the episode window with 5-minute grace against ground-truth tables (`EVENT`, `FAULT`, `BOTH`, or `NEITHER`). All 4 categories partition the total alarm population without double-counting.
 
 ## 2. Fixed Threshold Detector Baseline (P3.2)
 ### Baseline Difficulty Breakdown: Fixed Threshold Baseline (k=12.2)
