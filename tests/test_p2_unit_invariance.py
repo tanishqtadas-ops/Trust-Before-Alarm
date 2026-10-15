@@ -166,3 +166,64 @@ def test_unit_invariance_across_10_scenarios():
                         f"Scenario {scen_id} (scale {u_dict['scale_type']}): Group feature '{feat}' is not unit-invariant! "
                         f"Max diff: {np.max(diffs):.6e}."
                     )
+
+
+def test_sigma_hat_pure_mad_conformance():
+    """Verify compute_sigma_hat strictly conforms to Appendix A.8 without std fallback."""
+    np.random.seed(42)
+    n = 600
+    
+    # 1. On an alternating or repeated signal where > 50% of first differences are 0.0:
+    # True sample MAD of first differences is exactly 0.0
+    x_rep = np.zeros(n)
+    for i in range(1, n):
+        # 70% chance of repeating previous value -> diff is 0
+        if np.random.rand() < 0.7:
+            x_rep[i] = x_rep[i - 1]
+        else:
+            x_rep[i] = x_rep[i - 1] + np.random.choice([-1.0, 1.0])
+            
+    # When epsilon=0.0, compute_sigma_hat must return 0.0 (no std deviation substitution)
+    sig_hat_zero = compute_sigma_hat(x_rep, epsilon=0.0)
+    # Beyond initial local window, MAD is 0 so sigma_hat must be 0.0
+    assert (sig_hat_zero[30:] == 0.0).all(), (
+        "compute_sigma_hat must output 0.0 when MAD is 0 (no std substitution allowed)"
+    )
+
+    # 2. On a known Gaussian random walk, verify manual conformance
+    x_rw = np.cumsum(np.random.normal(0, 0.2, n))
+    est = compute_sigma_hat(x_rw)
+    diff = np.diff(x_rw, prepend=np.nan)
+    
+    # Manual calculation at step 500
+    w = diff[500 - 30 + 1 : 501]
+    expected_local = 1.4826 * np.median(np.abs(w - np.median(w))) / np.sqrt(2)
+    assert est[500] > 0.10 and est[500] < 0.30
+
+
+def test_sigma_hat_and_sigma_eff_separation():
+    """Verify intended separation: sigma_hat is pure MAD, sigma_eff is bounded by q_hat / sqrt(12)."""
+    np.random.seed(123)
+    n = 600
+    q = 0.25
+    # Small noise: std = 0.02 C << q
+    # Quantised readings will stay at the same level frequently
+    cont_val = 20.0 + np.cumsum(np.random.normal(0, 0.02, n))
+    quant_val = np.round(cont_val / q) * q
+    
+    sig_hat = compute_sigma_hat(quant_val, epsilon=1e-6)
+    q_hat = estimate_q_hat(quant_val)
+    sig_eff = compute_sigma_eff(quant_val, sigma_hat=sig_hat, q_hat=q_hat)
+
+    # Once q_hat is estimated (after 480 steps), q_hat must equal q
+    assert np.isclose(q_hat[480], q, atol=1e-5)
+
+    # Expected uniform quantisation noise floor is q / sqrt(12)
+    q_floor_expected = q / np.sqrt(12.0)  # ~0.07217
+
+    # At step 480:
+    # sigma_hat is very small (frequently collapses near epsilon because MAD of diffs is 0)
+    assert sig_hat[480] < q_floor_expected
+    # sigma_eff is strictly bounded by q / sqrt(12)
+    assert np.isclose(sig_eff[480], q_floor_expected, rtol=1e-3)
+    assert sig_eff[480] >= q_floor_expected

@@ -73,47 +73,27 @@ def compute_sigma_hat(
     valid_counts = np.sum(~np.isnan(windows), axis=1)
     mads[valid_counts < min_periods_local] = np.nan
 
-    # When MAD collapses below float precision due to repeated differences from quantisation grid,
-    # fallback to rolling standard deviation / sqrt(2) to preserve scale invariance
-    zero_mad = (mads < 1e-11) & (valid_counts >= min_periods_local)
-    if np.any(zero_mad):
-        stds = np.nanstd(windows[zero_mad], axis=1) / np.sqrt(2)
-        mads[zero_mad] = np.where(stds > 1e-11, stds, 0.0)
-
     local_sigma = pd.Series(mads * scale)
 
     # Step 3: 25th percentile of rolling estimates over the 480-step reference causally
     quantile_q = rolling_pct / 100.0
     rolling_ref = local_sigma.rolling(ref_win, min_periods=1).quantile(quantile_q).to_numpy(copy=True)
 
-    # Step 4: Fallback for early or missing steps and floor at epsilon
-    # If early steps don't have enough local windows or collapse due to repeats, fallback causally
-    needs_fallback = np.isnan(rolling_ref) | (rolling_ref <= 1e-11)
-    if np.any(needs_fallback):
-        last_good = epsilon
-        for idx in range(n):
-            if needs_fallback[idx]:
-                sub_diff = diff[: idx + 1]
-                valid_sub = sub_diff[~np.isnan(sub_diff)]
-                nonzero = valid_sub[np.abs(valid_sub) > 1e-11]
-                if len(valid_sub) >= min_periods_local:
-                    m = np.median(valid_sub)
-                    mad_val = np.median(np.abs(valid_sub - m)) * scale
-                    if mad_val > 1e-11:
-                        rolling_ref[idx] = mad_val
-                    elif len(nonzero) > 0:
-                        std_val = np.std(nonzero) / np.sqrt(2)
-                        rolling_ref[idx] = std_val if std_val > 1e-11 else np.abs(nonzero[-1]) * scale
-                    else:
-                        rolling_ref[idx] = last_good
-                elif len(nonzero) > 0:
-                    rolling_ref[idx] = np.abs(nonzero[-1]) * scale
-                else:
-                    rolling_ref[idx] = last_good
-            if rolling_ref[idx] > 1e-11:
-                last_good = rolling_ref[idx]
+    # Step 4: Fallback for early timesteps where local window < min_periods_local
+    is_nan = np.isnan(rolling_ref)
+    if np.any(is_nan):
+        for idx in np.where(is_nan)[0]:
+            sub_diff = diff[: idx + 1]
+            valid_sub = sub_diff[~np.isnan(sub_diff)]
+            if len(valid_sub) >= min_periods_local:
+                m = np.median(valid_sub)
+                rolling_ref[idx] = np.median(np.abs(valid_sub - m)) * scale
+            elif len(valid_sub) >= 1:
+                rolling_ref[idx] = np.abs(valid_sub[-1]) * scale
+            else:
+                rolling_ref[idx] = epsilon
 
-    # Floor at epsilon
+    # Floor at epsilon to ensure non-negative/strictly positive finite output
     rolling_ref = np.maximum(np.nan_to_num(rolling_ref, nan=epsilon), epsilon)
     return rolling_ref
 
