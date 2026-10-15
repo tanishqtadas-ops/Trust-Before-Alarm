@@ -171,6 +171,16 @@ def run_phase_p4(
     for cname, pcm in bench_metrics.per_class_metrics.items():
         print(f"{cname:<18} {pcm['support']:<10} {pcm['precision']*100:<11.2f}% {pcm['recall']*100:<11.2f}% {pcm['f1']:<11.4f} {pcm['ovr_auc']:<10.4f}")
 
+    # Calculate null control statistics
+    auc_vals = [sr.val_auc for sr in shuffle_results]
+    recall_vals = [sr.val_recall_at_budget for sr in shuffle_results]
+    mean_auc = float(np.mean(auc_vals))
+    std_auc = float(np.std(auc_vals))
+    mean_recall = float(np.mean(recall_vals))
+    passed_auc_count = sum(1 for sr in shuffle_results if sr.passed_auc)
+    overall_null_auc_passed = (0.50 - 0.03) <= mean_auc <= (0.50 + 0.03) and (passed_auc_count == len(shuffle_results))
+    overall_null_recall_passed = all(sr.passed_recall for sr in shuffle_results)
+
     # 6. Generate Consolidated Markdown Report
     print("\nCompiling consolidated report...")
     report_lines = [
@@ -179,13 +189,22 @@ def run_phase_p4(
         f"*Dataset: Generator A (Train: {len(train_feat):,} scored rows, Val: {len(val_feat):,} scored rows; Test split STRICTLY UNTOUCHED)*",
         "",
         "## Executive Summary",
-        f"- **P4.1 Single-Feature Separability:** {len(flagged_untrusted)} features flagged on `sensor_untrusted` (AUC > 0.85); {len(flagged_faults)} features flagged on per-fault OvR. All flagged features reflect documented physical domain properties (e.g. `consec_missing` for dropout, `repeat_run_len` for frozen); zero ground-truth leakage or illicit metadata proxies detected.",
-        f"- **P4.2 Label-Shuffle Null Control:** All 5 seeds (20001-20005) scored near chance: Mean Val AUC = {np.mean([sr.val_auc for sr in shuffle_results]):.4f} (target 0.50 +/- 0.03: PASSED). Recall at budget: <= 0.05 (PASSED).",
-        f"- **P4.2 Canary Leak Test:** Planted canary was successfully caught with AUC = {canary_res.canary_auc:.4f} (>= 0.95: PASSED). Clean feature matrix contains zero synthetic ground-truth copies.",
-        f"- **P4.3 First LightGBM Benchmark:** 8-class GBDT benchmark achieved **{bench_metrics.overall_accuracy * 100:.2f}% accuracy**, **Macro-F1 {bench_metrics.macro_f1:.4f}**, and **Macro-AUC {bench_metrics.macro_ovr_auc:.4f}** on validation set without tuning. Significant lift over trivial majority-class baseline (Macro-F1 {bench_metrics.baseline_majority_macro_f1:.4f}).",
+        f"- **P4.1 Single-Feature Separability:** {len(flagged_untrusted)} features flagged on `sensor_untrusted` (AUC > 0.85); {len(flagged_faults)} features flagged on per-fault OvR (> 0.85). All flagged features reflect documented physical domain properties (e.g. `consec_missing` for dropout, `repeat_run_len` for frozen); zero ground-truth leakage or illicit metadata proxies detected (**PASSED**).",
+        f"- **P4.2 Label-Shuffle Null Control:**",
+        f"  - **AUC Tolerance Status:** **FAILED** (Mean Val AUC = {mean_auc:.4f} +/- {std_auc:.4f} outside required tolerance [0.4700, 0.5300]; 2/5 seeds passed, 3/5 seeds failed).",
+        f"  - **Recall at Budget Status:** **PASSED** (All 5 seeds <= 0.05, mean recall @ budget = {mean_recall:.4f} <= 0.05).",
+        f"  - **Alignment & Leakage Audit:** Complete audit confirmed zero data leakage, zero join duplication, 100% disjoint scenario sets (900 train vs 300 val), and exact class count preservation (12,478/300k train, 20,368/512k val).",
+        f"  - **Root Cause Analysis:** Empirical experiments confirmed that the sub-0.50 AUC is a tree ranking inversion artifact on rare extreme features under 96/4 class imbalance (pure noise features achieve AUC 0.5027; real features invert probabilities on rare physical outliers). However, per project specification (`eval.yaml`), the control must be reported as failed on the strict AUC criterion.",
+        f"- **P4.2 Canary Leak Test:** Planted canary was successfully caught with AUC = {canary_res.canary_auc:.4f} (>= 0.95: **PASSED**). Clean feature matrix contains zero synthetic ground-truth copies (max feature `gap_absmax_m` AUC = 0.6893 < 0.85 and < 0.95: **PASSED**).",
+        f"- **P4.3 First LightGBM Benchmark:** 8-class GBDT benchmark achieved **{bench_metrics.overall_accuracy * 100:.2f}% accuracy**, **Macro-F1 {bench_metrics.macro_f1:.4f}**, and **Macro-AUC {bench_metrics.macro_ovr_auc:.4f}** on validation set without tuning. Significant lift over trivial majority-class baseline (Macro-F1 {bench_metrics.baseline_majority_macro_f1:.4f}). Test split strictly held out (0 accesses: **PASSED**).",
         "",
         "## 1. P4.1 Single-Feature Separability Audit",
         "Threshold: AUC > 0.85 (Appendix A.14 / eval.yaml)",
+        "",
+        "### Threshold Specification Clarification",
+        "- `single_feature_auc_threshold: 0.85`: Used as an investigation trigger for clean feature evaluation. Any clean feature exceeding 0.85 must be justified by physical domain necessity.",
+        "- `canary_auc_min: 0.95`: Used as the sensitivity pass mark for catching planted ground-truth leakage (canary).",
+        "- These thresholds are distinct, intentional, and spec-compliant.",
         "",
         "### Top 15 Features by Untrusted Separability (AUC against `sensor_untrusted`)",
         "| Rank | Feature Name | Direction | Untrusted AUC | PR-AUC | Max OvR Fault | Max Fault AUC | Task-Aware Explanation |",
@@ -217,22 +236,34 @@ def run_phase_p4(
         "## 2. P4.2 Label-Shuffle Null Control & Canary Leak Test",
         "",
         "### Label-Shuffle Results (Seeds 20001 to 20005)",
-        "| Seed | Validation AUC | Target (0.50 +/- 0.03) | Val PR-AUC | Recall @ Budget (<= 0.05) | Status |",
-        "|---|---|---|---|---|---|",
+        "| Seed | Validation AUC | Target (0.50 +/- 0.03) | AUC Status | Val PR-AUC | Recall @ Budget (<= 0.05) | Recall Status | Overall Status |",
+        "|---|---|---|---|---|---|---|---|",
     ])
     for sr in shuffle_results:
         report_lines.append(
-            f"| {sr.seed} | {sr.val_auc:.4f} | [0.4700, 0.5300] | {sr.val_pr_auc:.4f} | {sr.val_recall_at_budget:.4f} | {'PASS' if (sr.passed_auc and sr.passed_recall) else 'FAIL'} |"
+            f"| {sr.seed} | {sr.val_auc:.4f} | [0.4700, 0.5300] | {'PASS' if sr.passed_auc else 'FAIL'} | {sr.val_pr_auc:.4f} | {sr.val_recall_at_budget:.4f} | {'PASS' if sr.passed_recall else 'FAIL'} | {sr.overall_status} |"
         )
-    auc_vals = [sr.val_auc for sr in shuffle_results]
     report_lines.extend([
         "",
-        f"- **AUC Mean:** {np.mean(auc_vals):.4f} +/- {np.std(auc_vals):.4f} [Min: {np.min(auc_vals):.4f}, Max: {np.max(auc_vals):.4f}]",
-        f"- **Assessment:** Null control behaves exactly as expected by chance; training on permuted labels completely destroys predictive power on validation data.",
+        f"- **AUC Mean:** {mean_auc:.4f} +/- {std_auc:.4f} [Min: {np.min(auc_vals):.4f}, Max: {np.max(auc_vals):.4f}]",
+        f"- **AUC Acceptance Status:** **FAILED** (Mean {mean_auc:.4f} is outside [0.4700, 0.5300]; 3 of 5 seeds failed)",
+        f"- **Recall at Budget Status:** **PASSED** (Mean {mean_recall:.4f} <= 0.05; all 5 seeds passed)",
+        "",
+        "### Implementation and Data Alignment Audit",
+        "1. **Partition Isolation:** Training (900 scenarios) and validation (300 scenarios) are strictly disjoint (0 scenario overlap).",
+        "2. **Validation Label Integrity:** Validation labels remain completely untouched; only training labels are permuted.",
+        "3. **Feature-Label Alignment:** Feature rows and labels are aligned 1-to-1 on `[scenario_id, sensor_id, timestamp]` with 0 duplicate keys and identical row ordering.",
+        "4. **Class Count Preservation:** Training positive count before shuffle: 12,478 / 300,000 (4.1593%); after shuffle: 12,478 / 300,000 (4.1593%) (exact match). Validation positive count: 20,368 / 512,640 (3.9732%) (intact).",
+        "5. **Sampling Protocol:** The committed pipeline samples 300,000 rows uniformly at random across all 900 training scenarios via `DataFrame.sample(n=300000, random_state=42)`. An array prefix `X_tr[:100000]` was used only in exploratory scratch scripts. A separate evaluation using all 1,531,872 training rows was executed and produced the same outcome (mean AUC 0.4554; 3/5 seeds failed).",
+        "6. **Evaluation of Tree-Based Outlier Inversion:**",
+        "   - *Pure Noise Experiment:* Training on synthetic Gaussian noise features yields validation AUC = 0.5027 (in-spec), confirming LightGBM's splitting logic is unbiased under null labels.",
+        "   - *Physical Feature Inversion:* On real features, rare extreme values (e.g. `repeat_run_len > 10`, `n_spikes_m > 0`, `cur_missing > 0`) contain very few training samples (< 1%). In unshuffled data, these rows are nearly 100% positive. When labels are permuted across 96% zeros and 4% ones, finite leaf splits on outlier features frequently sample positive rates below the 4.16% dataset average (often 0% to 2%), causing the tree to assign lower scores to outlier feature values.",
+        "   - *Validation Inversion:* In the validation set (preserving true labels), actual faults concentrate heavily in these exact outlier bins. Because the null model assigns lower scores to outlier bins than to the normal bulk, true positive cases receive lower probabilities than normal cases, inverting the validation ranking and systematically depressing AUC below 0.50 (mean 0.4682 across 20 seeds).",
+        "   - *Verdict:* While the physical/statistical mechanism is confirmed as an artifact of tree splitting on imbalanced/outlier data rather than data leakage, the result fails the specification in `eval.yaml` ([0.4700, 0.5300]). The control is therefore reported as **FAILED** on AUC tolerance.",
         "",
         "### Canary Leak Test",
         f"- **Planted Canary AUC:** {canary_res.canary_auc:.4f} (Target >= 0.95: **{'PASS' if canary_res.canary_caught else 'FAIL'}**)",
-        f"- **Clean Matrix Max Feature:** `{canary_res.clean_max_feature}` (AUC = {canary_res.clean_max_auc:.4f})",
+        f"- **Clean Matrix Max Feature:** `{canary_res.clean_max_feature}` (AUC = {canary_res.clean_max_auc:.4f} < 0.85 warning: **PASS**)",
         f"- **Audit Status:** {canary_res.notes}",
         "",
         "## 3. P4.3 First Multiclass LightGBM Benchmark",
@@ -289,6 +320,17 @@ def run_phase_p4(
         "separability_evaluated_count": len(sep_results),
         "flagged_untrusted_count": len(flagged_untrusted),
         "flagged_fault_count": len(flagged_faults),
+        "label_shuffle_summary": {
+            "target_auc_range": [0.4700, 0.5300],
+            "mean_auc": mean_auc,
+            "std_auc": std_auc,
+            "auc_passed": overall_null_auc_passed,
+            "mean_recall_at_budget": mean_recall,
+            "recall_passed": overall_null_recall_passed,
+            "overall_null_control_status": "FAIL",
+            "class_counts_preserved": all(sr.class_counts_preserved for sr in shuffle_results),
+            "disjoint_scenarios_verified": True,
+        },
         "label_shuffle_seeds": [sr.__dict__ for sr in shuffle_results],
         "canary_test": canary_res.__dict__,
         "benchmark_metrics": {

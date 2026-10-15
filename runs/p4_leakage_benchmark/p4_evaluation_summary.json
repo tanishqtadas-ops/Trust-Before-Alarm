@@ -1,9 +1,23 @@
 {
-  "timestamp_utc": "2026-10-14 21:09:00 UTC",
+  "timestamp_utc": "2026-10-15 13:34:58 UTC",
   "phase": "P4",
   "separability_evaluated_count": 49,
   "flagged_untrusted_count": 0,
   "flagged_fault_count": 16,
+  "label_shuffle_summary": {
+    "target_auc_range": [
+      0.47,
+      0.53
+    ],
+    "mean_auc": 0.4615265384377163,
+    "std_auc": 0.03251298722769186,
+    "auc_passed": false,
+    "mean_recall_at_budget": 0.029281225451688923,
+    "recall_passed": true,
+    "overall_null_control_status": "FAIL",
+    "class_counts_preserved": true,
+    "disjoint_scenarios_verified": true
+  },
   "label_shuffle_seeds": [
     {
       "seed": 20001,
@@ -12,7 +26,14 @@
       "val_recall_at_50pct": 0.0,
       "val_recall_at_budget": 0.03318931657501964,
       "passed_auc": true,
-      "passed_recall": true
+      "passed_recall": true,
+      "train_samples": 300000,
+      "train_positives_before": 12427,
+      "train_positives_after": 12427,
+      "val_samples": 512640,
+      "val_positives": 20368,
+      "class_counts_preserved": true,
+      "overall_status": "PASS"
     },
     {
       "seed": 20002,
@@ -21,7 +42,14 @@
       "val_recall_at_50pct": 0.0,
       "val_recall_at_budget": 0.022535349567949725,
       "passed_auc": false,
-      "passed_recall": true
+      "passed_recall": true,
+      "train_samples": 300000,
+      "train_positives_before": 12427,
+      "train_positives_after": 12427,
+      "val_samples": 512640,
+      "val_positives": 20368,
+      "class_counts_preserved": true,
+      "overall_status": "FAIL"
     },
     {
       "seed": 20003,
@@ -30,7 +58,14 @@
       "val_recall_at_50pct": 0.0,
       "val_recall_at_budget": 0.032992930086410056,
       "passed_auc": true,
-      "passed_recall": true
+      "passed_recall": true,
+      "train_samples": 300000,
+      "train_positives_before": 12427,
+      "train_positives_after": 12427,
+      "val_samples": 512640,
+      "val_positives": 20368,
+      "class_counts_preserved": true,
+      "overall_status": "PASS"
     },
     {
       "seed": 20004,
@@ -39,7 +74,14 @@
       "val_recall_at_50pct": 4.909662215239592e-05,
       "val_recall_at_budget": 0.025530243519245877,
       "passed_auc": false,
-      "passed_recall": true
+      "passed_recall": true,
+      "train_samples": 300000,
+      "train_positives_before": 12427,
+      "train_positives_after": 12427,
+      "val_samples": 512640,
+      "val_positives": 20368,
+      "class_counts_preserved": true,
+      "overall_status": "FAIL"
     },
     {
       "seed": 20005,
@@ -48,7 +90,14 @@
       "val_recall_at_50pct": 0.0,
       "val_recall_at_budget": 0.032158287509819326,
       "passed_auc": false,
-      "passed_recall": true
+      "passed_recall": true,
+      "train_samples": 300000,
+      "train_positives_before": 12427,
+      "train_positives_after": 12427,
+      "val_samples": 512640,
+      "val_positives": 20368,
+      "class_counts_preserved": true,
+      "overall_status": "FAIL"
     }
   ],
   "canary_test": {

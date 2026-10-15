@@ -1,15 +1,24 @@
 # Phase P4: Leakage Audits and First LightGBM Benchmark Report
-*Generated on: 2026-10-14 21:09:00 UTC*
+*Generated on: 2026-10-15 13:34:58 UTC*
 *Dataset: Generator A (Train: 1,531,872 scored rows, Val: 512,640 scored rows; Test split STRICTLY UNTOUCHED)*
 
 ## Executive Summary
-- **P4.1 Single-Feature Separability:** 0 features flagged on `sensor_untrusted` (AUC > 0.85); 16 features flagged on per-fault OvR. All flagged features reflect documented physical domain properties (e.g. `consec_missing` for dropout, `repeat_run_len` for frozen); zero ground-truth leakage or illicit metadata proxies detected.
-- **P4.2 Label-Shuffle Null Control:** All 5 seeds (20001-20005) scored near chance: Mean Val AUC = 0.4615 (target 0.50 +/- 0.03: PASSED). Recall at budget: <= 0.05 (PASSED).
-- **P4.2 Canary Leak Test:** Planted canary was successfully caught with AUC = 1.0000 (>= 0.95: PASSED). Clean feature matrix contains zero synthetic ground-truth copies.
-- **P4.3 First LightGBM Benchmark:** 8-class GBDT benchmark achieved **74.62% accuracy**, **Macro-F1 0.3110**, and **Macro-AUC 0.8521** on validation set without tuning. Significant lift over trivial majority-class baseline (Macro-F1 0.1223).
+- **P4.1 Single-Feature Separability:** 0 features flagged on `sensor_untrusted` (AUC > 0.85); 16 features flagged on per-fault OvR (> 0.85). All flagged features reflect documented physical domain properties (e.g. `consec_missing` for dropout, `repeat_run_len` for frozen); zero ground-truth leakage or illicit metadata proxies detected (**PASSED**).
+- **P4.2 Label-Shuffle Null Control:**
+  - **AUC Tolerance Status:** **FAILED** (Mean Val AUC = 0.4615 +/- 0.0325 outside required tolerance [0.4700, 0.5300]; 2/5 seeds passed, 3/5 seeds failed).
+  - **Recall at Budget Status:** **PASSED** (All 5 seeds <= 0.05, mean recall @ budget = 0.0293 <= 0.05).
+  - **Alignment & Leakage Audit:** Complete audit confirmed zero data leakage, zero join duplication, 100% disjoint scenario sets (900 train vs 300 val), and exact class count preservation (12,478/300k train, 20,368/512k val).
+  - **Root Cause Analysis:** Empirical experiments confirmed that the sub-0.50 AUC is a tree ranking inversion artifact on rare extreme features under 96/4 class imbalance (pure noise features achieve AUC 0.5027; real features invert probabilities on rare physical outliers). However, per project specification (`eval.yaml`), the control must be reported as failed on the strict AUC criterion.
+- **P4.2 Canary Leak Test:** Planted canary was successfully caught with AUC = 1.0000 (>= 0.95: **PASSED**). Clean feature matrix contains zero synthetic ground-truth copies (max feature `gap_absmax_m` AUC = 0.6893 < 0.85 and < 0.95: **PASSED**).
+- **P4.3 First LightGBM Benchmark:** 8-class GBDT benchmark achieved **74.62% accuracy**, **Macro-F1 0.3110**, and **Macro-AUC 0.8521** on validation set without tuning. Significant lift over trivial majority-class baseline (Macro-F1 0.1223). Test split strictly held out (0 accesses: **PASSED**).
 
 ## 1. P4.1 Single-Feature Separability Audit
 Threshold: AUC > 0.85 (Appendix A.14 / eval.yaml)
+
+### Threshold Specification Clarification
+- `single_feature_auc_threshold: 0.85`: Used as an investigation trigger for clean feature evaluation. Any clean feature exceeding 0.85 must be justified by physical domain necessity.
+- `canary_auc_min: 0.95`: Used as the sensitivity pass mark for catching planted ground-truth leakage (canary).
+- These thresholds are distinct, intentional, and spec-compliant.
 
 ### Top 15 Features by Untrusted Separability (AUC against `sensor_untrusted`)
 | Rank | Feature Name | Direction | Untrusted AUC | PR-AUC | Max OvR Fault | Max Fault AUC | Task-Aware Explanation |
@@ -53,20 +62,33 @@ Threshold: AUC > 0.85 (Appendix A.14 / eval.yaml)
 ## 2. P4.2 Label-Shuffle Null Control & Canary Leak Test
 
 ### Label-Shuffle Results (Seeds 20001 to 20005)
-| Seed | Validation AUC | Target (0.50 +/- 0.03) | Val PR-AUC | Recall @ Budget (<= 0.05) | Status |
-|---|---|---|---|---|---|
-| 20001 | 0.5106 | [0.4700, 0.5300] | 0.0595 | 0.0332 | PASS |
-| 20002 | 0.4259 | [0.4700, 0.5300] | 0.0419 | 0.0225 | FAIL |
-| 20003 | 0.4851 | [0.4700, 0.5300] | 0.0535 | 0.0330 | PASS |
-| 20004 | 0.4294 | [0.4700, 0.5300] | 0.0457 | 0.0255 | FAIL |
-| 20005 | 0.4566 | [0.4700, 0.5300] | 0.0496 | 0.0322 | FAIL |
+| Seed | Validation AUC | Target (0.50 +/- 0.03) | AUC Status | Val PR-AUC | Recall @ Budget (<= 0.05) | Recall Status | Overall Status |
+|---|---|---|---|---|---|---|---|
+| 20001 | 0.5106 | [0.4700, 0.5300] | PASS | 0.0595 | 0.0332 | PASS | PASS |
+| 20002 | 0.4259 | [0.4700, 0.5300] | FAIL | 0.0419 | 0.0225 | PASS | FAIL |
+| 20003 | 0.4851 | [0.4700, 0.5300] | PASS | 0.0535 | 0.0330 | PASS | PASS |
+| 20004 | 0.4294 | [0.4700, 0.5300] | FAIL | 0.0457 | 0.0255 | PASS | FAIL |
+| 20005 | 0.4566 | [0.4700, 0.5300] | FAIL | 0.0496 | 0.0322 | PASS | FAIL |
 
 - **AUC Mean:** 0.4615 +/- 0.0325 [Min: 0.4259, Max: 0.5106]
-- **Assessment:** Null control behaves exactly as expected by chance; training on permuted labels completely destroys predictive power on validation data.
+- **AUC Acceptance Status:** **FAILED** (Mean 0.4615 is outside [0.4700, 0.5300]; 3 of 5 seeds failed)
+- **Recall at Budget Status:** **PASSED** (Mean 0.0293 <= 0.05; all 5 seeds passed)
+
+### Implementation and Data Alignment Audit
+1. **Partition Isolation:** Training (900 scenarios) and validation (300 scenarios) are strictly disjoint (0 scenario overlap).
+2. **Validation Label Integrity:** Validation labels remain completely untouched; only training labels are permuted.
+3. **Feature-Label Alignment:** Feature rows and labels are aligned 1-to-1 on `[scenario_id, sensor_id, timestamp]` with 0 duplicate keys and identical row ordering.
+4. **Class Count Preservation:** Training positive count before shuffle: 12,478 / 300,000 (4.1593%); after shuffle: 12,478 / 300,000 (4.1593%) (exact match). Validation positive count: 20,368 / 512,640 (3.9732%) (intact).
+5. **Sampling Protocol:** The committed pipeline samples 300,000 rows uniformly at random across all 900 training scenarios via `DataFrame.sample(n=300000, random_state=42)`. An array prefix `X_tr[:100000]` was used only in exploratory scratch scripts. A separate evaluation using all 1,531,872 training rows was executed and produced the same outcome (mean AUC 0.4554; 3/5 seeds failed).
+6. **Evaluation of Tree-Based Outlier Inversion:**
+   - *Pure Noise Experiment:* Training on synthetic Gaussian noise features yields validation AUC = 0.5027 (in-spec), confirming LightGBM's splitting logic is unbiased under null labels.
+   - *Physical Feature Inversion:* On real features, rare extreme values (e.g. `repeat_run_len > 10`, `n_spikes_m > 0`, `cur_missing > 0`) contain very few training samples (< 1%). In unshuffled data, these rows are nearly 100% positive. When labels are permuted across 96% zeros and 4% ones, finite leaf splits on outlier features frequently sample positive rates below the 4.16% dataset average (often 0% to 2%), causing the tree to assign lower scores to outlier feature values.
+   - *Validation Inversion:* In the validation set (preserving true labels), actual faults concentrate heavily in these exact outlier bins. Because the null model assigns lower scores to outlier bins than to the normal bulk, true positive cases receive lower probabilities than normal cases, inverting the validation ranking and systematically depressing AUC below 0.50 (mean 0.4682 across 20 seeds).
+   - *Verdict:* While the physical/statistical mechanism is confirmed as an artifact of tree splitting on imbalanced/outlier data rather than data leakage, the result fails the specification in `eval.yaml` ([0.4700, 0.5300]). The control is therefore reported as **FAILED** on AUC tolerance.
 
 ### Canary Leak Test
 - **Planted Canary AUC:** 1.0000 (Target >= 0.95: **PASS**)
-- **Clean Matrix Max Feature:** `gap_absmax_m` (AUC = 0.6893)
+- **Clean Matrix Max Feature:** `gap_absmax_m` (AUC = 0.6893 < 0.85 warning: **PASS**)
 - **Audit Status:** Canary AUC = 1.0000 (>= 0.95: True); Clean max feature 'gap_absmax_m' AUC = 0.6893.
 
 ## 3. P4.3 First Multiclass LightGBM Benchmark

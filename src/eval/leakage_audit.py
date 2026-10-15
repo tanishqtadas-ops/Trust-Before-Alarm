@@ -59,6 +59,13 @@ class LabelShuffleSeedResult:
     val_recall_at_budget: float
     passed_auc: bool
     passed_recall: bool
+    train_samples: int = 0
+    train_positives_before: int = 0
+    train_positives_after: int = 0
+    val_samples: int = 0
+    val_positives: int = 0
+    class_counts_preserved: bool = True
+    overall_status: str = "FAIL"
 
 
 @dataclass
@@ -212,6 +219,13 @@ def run_label_shuffle_null_control(
     Shuffles training labels only, leaving validation labels and split intact.
     """
     join_keys = ["scenario_id", "sensor_id", "timestamp"]
+
+    # Verify train and val scenarios are disjoint
+    train_scens = set(train_features["scenario_id"].unique())
+    val_scens = set(val_features["scenario_id"].unique())
+    if not train_scens.isdisjoint(val_scens):
+        overlap = train_scens.intersection(val_scens)
+        raise ValueError(f"Train and validation scenario IDs must be strictly disjoint! Overlap: {overlap}")
     
     # Prepare train dataset
     train_merged = pd.merge(
@@ -225,6 +239,7 @@ def run_label_shuffle_null_control(
 
     X_train = train_merged[feature_cols].to_numpy(dtype=float)
     y_train_orig = train_merged["sensor_untrusted"].to_numpy().astype(int)
+    n_pos_train_orig = int(y_train_orig.sum())
 
     # Prepare val dataset
     val_merged = pd.merge(
@@ -235,6 +250,7 @@ def run_label_shuffle_null_control(
     )
     X_val = val_merged[feature_cols].to_numpy(dtype=float)
     y_val = val_merged["sensor_untrusted"].to_numpy().astype(int)
+    n_pos_val = int(y_val.sum())
 
     seed_results: List[LabelShuffleSeedResult] = []
 
@@ -242,6 +258,10 @@ def run_label_shuffle_null_control(
         rng = np.random.default_rng(seed)
         # Permute training labels ONLY
         y_train_shuffled = rng.permutation(y_train_orig)
+        n_pos_train_shuff = int(y_train_shuffled.sum())
+        assert n_pos_train_orig == n_pos_train_shuff, (
+            f"Class count mismatch in seed {seed}: before={n_pos_train_orig}, after={n_pos_train_shuff}"
+        )
 
         # Train a fast LightGBM binary classifier
         clf = lgb.LGBMClassifier(
@@ -271,18 +291,18 @@ def run_label_shuffle_null_control(
 
         # Recall at p >= 0.5
         preds_50 = (val_probs >= 0.5).astype(int)
-        n_pos = int(y_val.sum())
-        recall_50 = float((preds_50[y_val == 1]).sum() / n_pos) if n_pos > 0 else 0.0
+        recall_50 = float((preds_50[y_val == 1]).sum() / n_pos_val) if n_pos_val > 0 else 0.0
 
         # Operating threshold to meet false-alarm budget (or empirical 99th percentile of healthy)
         healthy_mask = (y_val == 0)
         healthy_scores = val_probs[healthy_mask]
         budget_cutoff = float(np.quantile(healthy_scores, 0.99)) if len(healthy_scores) > 0 else 0.5
         preds_budget = (val_probs >= budget_cutoff).astype(int)
-        recall_budget = float((preds_budget[y_val == 1]).sum() / n_pos) if n_pos > 0 else 0.0
+        recall_budget = float((preds_budget[y_val == 1]).sum() / n_pos_val) if n_pos_val > 0 else 0.0
 
         passed_auc = (auc_target - auc_tolerance) <= val_auc <= (auc_target + auc_tolerance)
         passed_recall = recall_budget <= recall_at_budget_max
+        overall_status = "PASS" if (passed_auc and passed_recall) else "FAIL"
 
         seed_results.append(LabelShuffleSeedResult(
             seed=seed,
@@ -292,6 +312,13 @@ def run_label_shuffle_null_control(
             val_recall_at_budget=recall_budget,
             passed_auc=passed_auc,
             passed_recall=passed_recall,
+            train_samples=len(X_train),
+            train_positives_before=n_pos_train_orig,
+            train_positives_after=n_pos_train_shuff,
+            val_samples=len(X_val),
+            val_positives=n_pos_val,
+            class_counts_preserved=(n_pos_train_orig == n_pos_train_shuff),
+            overall_status=overall_status,
         ))
 
     return seed_results

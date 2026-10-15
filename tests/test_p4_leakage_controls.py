@@ -69,6 +69,69 @@ def test_label_shuffle_null_control_chance_level(synthetic_train_val_data):
         # Shuffled training labels should produce near 0.50 AUC
         assert 0.40 <= r.val_auc <= 0.60
         assert r.val_recall_at_budget <= 0.10
+        # Class counts must be preserved
+        assert r.class_counts_preserved is True
+        assert r.train_positives_before == r.train_positives_after
+
+
+def test_label_shuffle_preserves_class_counts(synthetic_train_val_data):
+    """Verify that label-shuffle null control strictly preserves positive class counts."""
+    tr_f, tr_g, val_f, val_g = synthetic_train_val_data
+    seeds = [20001, 20002, 20003]
+
+    results = run_label_shuffle_null_control(
+        train_features=tr_f,
+        train_gt=tr_g,
+        val_features=val_f,
+        val_gt=val_g,
+        feature_cols=["diff_1", "slope_s"],
+        seeds=seeds,
+    )
+
+    for r in results:
+        assert r.train_samples == len(tr_f)
+        assert r.train_positives_before == int(tr_g["sensor_untrusted"].sum())
+        assert r.train_positives_after == r.train_positives_before
+        assert r.class_counts_preserved is True
+        assert r.val_samples == len(val_f)
+        assert r.val_positives == int(val_g["sensor_untrusted"].sum())
+
+
+def test_label_shuffle_rejects_overlapping_scenarios(synthetic_train_val_data):
+    """Verify that run_label_shuffle_null_control raises ValueError if scenario IDs overlap."""
+    tr_f, tr_g, val_f, val_g = synthetic_train_val_data
+    # Create an intentional overlap
+    bad_val_f = val_f.copy()
+    bad_val_f.loc[0:10, "scenario_id"] = tr_f.loc[0, "scenario_id"]
+
+    with pytest.raises(ValueError, match="strictly disjoint"):
+        run_label_shuffle_null_control(
+            train_features=tr_f,
+            train_gt=tr_g,
+            val_features=bad_val_f,
+            val_gt=val_g,
+            feature_cols=["diff_1", "slope_s"],
+            seeds=[20001],
+        )
+
+
+def test_label_shuffle_strict_status_reporting(synthetic_train_val_data):
+    """Verify that an AUC outside target range is strictly reported as FAIL."""
+    tr_f, tr_g, val_f, val_g = synthetic_train_val_data
+    # Force an impossible tolerance to guarantee failure
+    results = run_label_shuffle_null_control(
+        train_features=tr_f,
+        train_gt=tr_g,
+        val_features=val_f,
+        val_gt=val_g,
+        feature_cols=["diff_1", "slope_s"],
+        seeds=[20001],
+        auc_target=0.50,
+        auc_tolerance=0.00001,  # impossibly narrow
+    )
+    assert len(results) == 1
+    assert results[0].passed_auc is False
+    assert results[0].overall_status == "FAIL"
 
 
 def test_canary_leak_test_positive_and_clean(synthetic_train_val_data):
@@ -91,3 +154,4 @@ def test_canary_leak_test_positive_and_clean(synthetic_train_val_data):
     # Clean matrix should pass
     assert canary_res.clean_passed is True
     assert canary_res.clean_max_auc < 0.95
+
