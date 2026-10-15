@@ -54,6 +54,7 @@ runs/p4_revalidation/*
 !runs/p4_revalidation/p4_evaluation_summary.json
 !runs/p4_revalidation/single_feature_separability.csv
 !runs/p4_revalidation/p4_null_control_diagnostic_report.md
+!runs/p4_revalidation/p4_null_control_protocol_review.md
 *.parquet
 
 # Scratch
