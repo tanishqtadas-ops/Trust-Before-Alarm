@@ -70,7 +70,7 @@ def compute_fast_rolling_slope(arr: np.ndarray, window: int) -> np.ndarray:
                     slopes[i] = np.sum((u - u_bar) * (y - np.mean(y))) / denom
                 else:
                     slopes[i] = 0.0
-    return slopes
+    return np.where(np.abs(slopes) < 1e-12, 0.0, slopes)
 
 
 def compute_rolling_mad_noise(diff: np.ndarray, window: int, min_periods: int = 3, scale: float = 1.048356) -> np.ndarray:
@@ -118,29 +118,29 @@ def compute_own_signal_features(
     df = pd.DataFrame(index=np.arange(n))
 
     # --- 1. Own-Signal Temporal (10 features) ---
-    # diff_1: first difference
+    # diff_1: first difference in sigma_eff units
     diff_1 = np.diff(arr, prepend=np.nan)
     abs_diff_1 = np.abs(diff_1)
-    df["diff_1"] = diff_1
+    df["diff_1"] = diff_1 / sigma_hat
 
-    # absdiff_max_s, absdiff_max_m
-    df["absdiff_max_s"] = pd.Series(abs_diff_1).rolling(w_s, min_periods=1).max().to_numpy()
-    df["absdiff_max_m"] = pd.Series(abs_diff_1).rolling(w_m, min_periods=1).max().to_numpy()
+    # absdiff_max_s, absdiff_max_m in sigma_eff units
+    df["absdiff_max_s"] = (pd.Series(abs_diff_1).rolling(w_s, min_periods=1).max().to_numpy()) / sigma_hat
+    df["absdiff_max_m"] = (pd.Series(abs_diff_1).rolling(w_m, min_periods=1).max().to_numpy()) / sigma_hat
 
-    # slope_s, slope_m, slope_l
-    df["slope_s"] = compute_fast_rolling_slope(arr, w_s)
-    df["slope_m"] = compute_fast_rolling_slope(arr, w_m)
-    df["slope_l"] = compute_fast_rolling_slope(arr, w_l)
+    # slope_s, slope_m, slope_l in sigma_eff per minute
+    df["slope_s"] = compute_fast_rolling_slope(arr, w_s) / sigma_hat
+    df["slope_m"] = compute_fast_rolling_slope(arr, w_m) / sigma_hat
+    df["slope_l"] = compute_fast_rolling_slope(arr, w_l) / sigma_hat
 
-    # slope_change
+    # slope_change in sigma_eff per minute
     df["slope_change"] = df["slope_s"] - df["slope_m"]
 
-    # dev_baseline: x_t - median(x_{t-w_ref+1..t})
+    # dev_baseline: (x_t - median(x_{t-w_ref+1..t})) in sigma_eff units
     baseline_median = pd.Series(arr).rolling(w_ref, min_periods=1).median().to_numpy()
     dev_baseline = arr - baseline_median
-    df["dev_baseline"] = dev_baseline
+    df["dev_baseline"] = dev_baseline / sigma_hat
 
-    # dev_duration: consecutive steps where |dev_baseline| > 3 * sigma_hat
+    # dev_duration: consecutive steps where |dev_baseline| > 3 * sigma_hat (or |normalized dev| > 3.0)
     is_dev = ~np.isnan(dev_baseline) & (np.abs(dev_baseline) > 3.0 * sigma_hat)
     dev_duration = np.zeros(n, dtype=float)
     for i in range(n):
@@ -203,10 +203,10 @@ def compute_own_signal_features(
                 kurtosis_m[i] = 0.0
     df["kurtosis_m"] = kurtosis_m
 
-    # range_m: max - min in window 30
+    # range_m: (max - min in window 30) in sigma_eff units
     roll_max_m = pd.Series(arr).rolling(w_m, min_periods=1).max().to_numpy()
     roll_min_m = pd.Series(arr).rolling(w_m, min_periods=1).min().to_numpy()
-    df["range_m"] = roll_max_m - roll_min_m
+    df["range_m"] = (roll_max_m - roll_min_m) / sigma_hat
 
     # --- 3. Data Quality (10 features) ---
     cur_missing = np.isnan(arr).astype(float)
@@ -304,6 +304,7 @@ def compute_cross_sensor_features(
     group_pivot_df: pd.DataFrame,
     sigma_hat: np.ndarray,
     config: Optional[Dict[str, Any]] = None,
+    sensor_sigma_effs: Optional[Dict[str, np.ndarray]] = None,
 ) -> pd.DataFrame:
     """Compute 14 cross-sensor features and 3 long-term degradation features for a target sensor.
     
@@ -371,22 +372,23 @@ def compute_cross_sensor_features(
 
     # Gap centering (Appendix A.8): relative to sensor's own median gap over 480-step reference
     ref_gap = pd.Series(raw_gap).rolling(w_ref, min_periods=1).median().to_numpy()
-    # Centered gap
+    # Centered gap in sigma_eff units
     centered_gap = raw_gap - ref_gap
-    df["gap"] = centered_gap
+    df["gap"] = centered_gap / sigma_hat
 
-    # gap_mean_m, gap_absmax_m, gap_std_m
-    df["gap_mean_m"] = pd.Series(centered_gap).rolling(w_m, min_periods=1).mean().to_numpy()
-    df["gap_absmax_m"] = pd.Series(np.abs(centered_gap)).rolling(w_m, min_periods=1).max().to_numpy()
-    df["gap_std_m"] = pd.Series(centered_gap).rolling(w_m, min_periods=2).std().to_numpy()
+    # gap_mean_m, gap_absmax_m, gap_std_m in sigma_eff units
+    raw_gap_mean_m = pd.Series(centered_gap).rolling(w_m, min_periods=1).mean().to_numpy()
+    df["gap_mean_m"] = raw_gap_mean_m / sigma_hat
+    df["gap_absmax_m"] = pd.Series(np.abs(centered_gap)).rolling(w_m, min_periods=1).max().to_numpy() / sigma_hat
+    df["gap_std_m"] = pd.Series(centered_gap).rolling(w_m, min_periods=2).std().to_numpy() / sigma_hat
 
-    # gap_slope_m, gap_slope_xl
-    df["gap_slope_m"] = compute_fast_rolling_slope(centered_gap, w_m)
-    df["gap_slope_xl"] = compute_fast_rolling_slope(centered_gap, w_ref)
+    # gap_slope_m, gap_slope_xl in sigma_eff per minute
+    df["gap_slope_m"] = compute_fast_rolling_slope(centered_gap, w_m) / sigma_hat
+    df["gap_slope_xl"] = compute_fast_rolling_slope(centered_gap, w_ref) / sigma_hat
 
-    # gap_change_m: change in centered gap over window 30
+    # gap_change_m: change in centered gap over window 30 in sigma_eff units
     gap_short_mean = pd.Series(centered_gap).rolling(windows.short, min_periods=1).mean().to_numpy()
-    df["gap_change_m"] = gap_short_mean - df["gap_mean_m"]
+    df["gap_change_m"] = (gap_short_mean - raw_gap_mean_m) / sigma_hat
 
     # gap_autocorr_m: lag-1 autocorrelation of centered gap over window 30
     gap_autocorr_m = np.full(n, np.nan, dtype=float)
@@ -406,13 +408,24 @@ def compute_cross_sensor_features(
                 gap_autocorr_m[i] = 0.0
     df["gap_autocorr_m"] = gap_autocorr_m
 
-    # others_spread
-    df["others_spread"] = np.where(n_valid_others <= 1.0, 0.0, others_spread)
+    # others_spread in other sensors' sigma_eff units (guaranteeing self-exclusion & unit-invariance)
+    if sensor_sigma_effs is not None and len(other_cols) > 0:
+        other_sigmas = [sensor_sigma_effs[c] for c in other_cols if c in sensor_sigma_effs]
+        if other_sigmas:
+            sig_eff_others = np.nanmedian(np.column_stack(other_sigmas), axis=1)
+        else:
+            sig_eff_others = sigma_hat
+    else:
+        sig_eff_others = sigma_hat
+    spread_res = np.where(n_valid_others <= 1.0, 0.0, others_spread / sig_eff_others)
+    if n > 0 and n_valid_others[0] > 1.0:
+        spread_res[0] = np.nan
+    df["others_spread"] = spread_res
 
     # others_agreement: fraction of other sensors whose short-term direction matches group ref
     diff_others = np.diff(others_arr, axis=0, prepend=np.nan)
     diff_r = np.diff(r, prepend=np.nan)
-    sign_r = np.sign(diff_r)
+    sign_r = np.where(np.abs(diff_r) < 1e-10, 0.0, np.sign(diff_r))
 
     others_agreement = np.full(n, np.nan, dtype=float)
     for i in range(n):
@@ -420,7 +433,8 @@ def compute_cross_sensor_features(
             others_agreement[i] = 1.0 if n_valid_others[i] == 1.0 else np.nan
         else:
             sr = sign_r[i]
-            so = np.sign(diff_others[i, :])
+            d_o = diff_others[i, :]
+            so = np.where(np.abs(d_o) < 1e-10, 0.0, np.sign(d_o))
             valid_so = so[~np.isnan(so)]
             if len(valid_so) > 0:
                 others_agreement[i] = float(np.mean(valid_so == sr))
@@ -447,10 +461,10 @@ def compute_cross_sensor_features(
                 diff_corr_m[i] = 0.0
     df["diff_corr_m"] = diff_corr_m
 
-    # net_change_gap_m: (x_t - x_{t-w_m}) - (r_t - r_{t-w_m})
+    # net_change_gap_m in sigma_eff units
     x_change_m = arr_lag_diff(x_target, w_m)
     r_change_m = arr_lag_diff(r, w_m)
-    df["net_change_gap_m"] = x_change_m - r_change_m
+    df["net_change_gap_m"] = (x_change_m - r_change_m) / sigma_hat
 
     # gain_slope_l, gain_r2_l: regression of x_target onto r over long window 120
     gain_slope_l = np.full(n, np.nan, dtype=float)

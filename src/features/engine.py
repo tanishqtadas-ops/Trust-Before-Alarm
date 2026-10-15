@@ -11,11 +11,12 @@ Produces:
 """
 
 from typing import Any, Dict, List, Optional, Tuple, Union
+import warnings
 import numpy as np
 import pandas as pd
 
 from src.utils.config import get_config_dir, load_yaml
-from src.features.sigma_hat import compute_sigma_hat
+from src.features.sigma_hat import compute_sigma_hat, compute_sigma_eff
 from src.features.sensor_features import compute_own_signal_features, compute_cross_sensor_features
 from src.features.group_features import compute_group_features
 
@@ -168,16 +169,31 @@ class FeatureEngine:
             timestamps = pivot_df.index.to_numpy(dtype=int)
             n_steps = len(pivot_df)
 
-            # Step 1: Compute sigma_hat for each sensor in the group
-            sigma_hats: Dict[str, np.ndarray] = {}
+            # Step 1: Compute sigma_eff for each sensor in the group
+            raw_sigma_effs: Dict[str, np.ndarray] = {}
             for sid in sensor_ids:
                 vals = pivot_df[sid].to_numpy(dtype=float)
-                sigma_hats[sid] = compute_sigma_hat(vals, config=self.config)
+                raw_sigma_effs[sid] = compute_sigma_eff(vals, config=self.config)
+
+            # For sensors that temporarily have 0 differences (e.g. constant/frozen at start),
+            # provide a group-level noise floor from other sensors in the group so unit scale is preserved
+            sigma_effs: Dict[str, np.ndarray] = {}
+            for sid in sensor_ids:
+                sig = raw_sigma_effs[sid].copy()
+                other_sigs = [raw_sigma_effs[o] for o in sensor_ids if o != sid]
+                if other_sigs:
+                    other_stack = np.column_stack(other_sigs)
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=RuntimeWarning)
+                        other_med = np.nanmedian(other_stack, axis=1)
+                    other_floor = np.nan_to_num(other_med, nan=1e-6)
+                    sig = np.where(sig <= 1e-5, np.maximum(sig, other_floor), sig)
+                sigma_effs[sid] = np.maximum(sig, 1e-6)
 
             # Step 2: Compute group-level features & Head C table for this group
             joined_group_df, head_c_df = compute_group_features(
                 group_pivot_df=pivot_df,
-                sensor_sigma_hats=sigma_hats,
+                sensor_sigma_hats=sigma_effs,
                 config=self.config,
             )
 
@@ -194,7 +210,7 @@ class FeatureEngine:
             # Step 3: Compute own-signal and cross-sensor features per sensor
             for sid in sensor_ids:
                 s_vals = pivot_df[sid].to_numpy(dtype=float)
-                sig = sigma_hats[sid]
+                sig = sigma_effs[sid]
 
                 own_df = compute_own_signal_features(s_vals, sig, config=self.config)
                 cross_df = compute_cross_sensor_features(
@@ -202,6 +218,7 @@ class FeatureEngine:
                     group_pivot_df=pivot_df,
                     sigma_hat=sig,
                     config=self.config,
+                    sensor_sigma_effs=sigma_effs,
                 )
 
                 # Assemble sensor record

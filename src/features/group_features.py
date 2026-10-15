@@ -111,40 +111,51 @@ def compute_group_features(
     event_breadth_m = np.where(n_valid_sensors > 0, breadth_m_counts / valid_denom, np.nan)
 
     # same_direction_frac: fraction of valid sensors agreeing with sign(group_change_m)
-    sign_group_m = np.sign(group_change_m)
-    sign_sensor_m = np.sign(arr_delta_m)
+    sign_group_m = np.where(np.abs(group_change_m) < 1e-10, 0.0, np.sign(group_change_m))
+    sign_sensor_m = np.where(np.abs(arr_delta_m) < 1e-10, 0.0, np.sign(arr_delta_m))
     agree_counts = np.sum((sign_sensor_m == sign_group_m[:, None]) & is_valid_reading, axis=1).astype(float)
     same_direction_frac = np.where(n_valid_sensors > 0, agree_counts / valid_denom, np.nan)
 
     # Dispersion is 0 if 1 or fewer valid sensors
     group_dispersion = np.where(n_valid_sensors <= 1, 0.0, group_dispersion)
 
+    # Effective group noise scale (causal median of sensor effective noise floors)
+    if sensor_sigma_hats and len(sensor_sigma_hats) > 0:
+        sig_stack = np.column_stack([sensor_sigma_hats[s] for s in sensor_ids if s in sensor_sigma_hats])
+        sigma_eff_group = np.nanmedian(sig_stack, axis=1)
+    else:
+        sigma_eff_group = np.full(n, 1e-6, dtype=float)
+    sigma_eff_group = np.maximum(np.nan_to_num(sigma_eff_group, nan=1e-6), 1e-6)
+
     # --- Construct Joined 6 Group/Event Features ---
     joined_df = pd.DataFrame(index=timestamps)
     joined_df["event_breadth_s"] = event_breadth_s
     joined_df["event_breadth_m"] = event_breadth_m
-    joined_df["group_change_s"] = group_change_s
-    joined_df["group_change_m"] = group_change_m
-    joined_df["group_dispersion"] = group_dispersion
+    joined_df["group_change_s"] = group_change_s / sigma_eff_group
+    joined_df["group_change_m"] = group_change_m / sigma_eff_group
+    disp_res = np.where(n_valid_sensors <= 1.0, 0.0, group_dispersion / sigma_eff_group)
+    if n > 0 and n_valid_sensors[0] > 1.0:
+        disp_res[0] = np.nan
+    joined_df["group_dispersion"] = disp_res
     joined_df["same_direction_frac"] = same_direction_frac
 
     # --- Head C Table Features (11 features) ---
     head_c_df = joined_df.copy()
 
-    # 7. group_slope_s: slope of group median series over short window (5)
-    head_c_df["group_slope_s"] = compute_fast_rolling_slope(group_median, w_s)
+    # 7. group_slope_s: slope of group median series over short window (5) in sigma_eff_group per min
+    head_c_df["group_slope_s"] = compute_fast_rolling_slope(group_median, w_s) / sigma_eff_group
 
-    # 8. group_dev_baseline: group median - reference baseline median
+    # 8. group_dev_baseline: group median - reference baseline median in sigma_eff_group units
     group_baseline = pd.Series(group_median).rolling(w_ref, min_periods=1).median().to_numpy()
-    head_c_df["group_dev_baseline"] = group_median - group_baseline
+    head_c_df["group_dev_baseline"] = (group_median - group_baseline) / sigma_eff_group
 
     # 9. n_valid_sensors
     head_c_df["n_valid_sensors"] = n_valid_sensors
 
-    # 10. group_peak_m: max - min of group median in medium window (30)
+    # 10. group_peak_m: max - min of group median in medium window (30) in sigma_eff_group units
     g_max_m = pd.Series(group_median).rolling(w_m, min_periods=1).max().to_numpy()
     g_min_m = pd.Series(group_median).rolling(w_m, min_periods=1).min().to_numpy()
-    head_c_df["group_peak_m"] = g_max_m - g_min_m
+    head_c_df["group_peak_m"] = (g_max_m - g_min_m) / sigma_eff_group
 
     # 11. group_noise_ratio: medium noise of group median / reference noise of group median
     mad_scale = float(config.get("sigma_hat", {}).get("mad_scale_factor", 1.4826))
@@ -158,7 +169,7 @@ def compute_group_features(
     noise_g_ref = compute_rolling_mad_noise(diff_g, w_ref, min_periods=10, scale=scale)
     noise_g_ref_fb = pd.Series(diff_g).rolling(w_ref, min_periods=10).std().to_numpy() / np.sqrt(2)
     noise_g_ref = np.where(np.isnan(noise_g_ref), noise_g_ref_fb, noise_g_ref)
-    eps_g_ref = np.maximum(np.nan_to_num(noise_g_ref, nan=1e-6), 1e-6)
+    eps_g_ref = np.maximum(np.nan_to_num(noise_g_ref, nan=sigma_eff_group), sigma_eff_group)
     head_c_df["group_noise_ratio"] = noise_g_m / eps_g_ref
 
     return joined_df, head_c_df

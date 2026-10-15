@@ -7,6 +7,12 @@ sigma_hat:
   rolling_percentile: 25.0                   # Appendix A.8: 25th percentile of rolling estimates
   reference_window: 480                      # Appendix A.8: over the 480-step reference
 
+quantisation_floor:
+  min_valid_readings: 30                     # Decision 50: min valid readings required for q_hat
+  min_distinct_values: 2                     # Decision 50: min distinct values required for q_hat
+  uniform_variance_divisor: 3.4641016151377544 # Decision 50: sqrt(12) theoretical std dev of quantisation error
+
+
 windows:
   short: 5                                   # Appendix A.8: short 5 readings
   medium: 30                                 # Appendix A.8: medium 30 readings

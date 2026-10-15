@@ -65,10 +65,11 @@ def test_linear_ramp_slope_tracking():
     sig = compute_sigma_hat(x)
     df = compute_own_signal_features(x, sig)
 
-    # Check slopes after window is full
-    np.testing.assert_allclose(df["slope_s"].iloc[10:], slope_true, atol=1e-6)
-    np.testing.assert_allclose(df["slope_m"].iloc[40:], slope_true, atol=1e-6)
-    np.testing.assert_allclose(df["slope_l"].iloc[130:], slope_true, atol=1e-6)
+    # Check slopes after window is full (expressed in sigma units per minute)
+    expected_slope = slope_true / sig
+    np.testing.assert_allclose(df["slope_s"].iloc[10:], expected_slope[10:], atol=1e-6)
+    np.testing.assert_allclose(df["slope_m"].iloc[40:], expected_slope[40:], atol=1e-6)
+    np.testing.assert_allclose(df["slope_l"].iloc[130:], expected_slope[130:], atol=1e-6)
     np.testing.assert_allclose(df["slope_change"].iloc[40:], 0.0, atol=1e-6)
 
 

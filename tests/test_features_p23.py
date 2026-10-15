@@ -72,10 +72,11 @@ def test_gap_centering_removes_static_offset():
     sig = compute_sigma_hat(df_group["s_A"])
     feat = compute_cross_sensor_features("s_A", df_group, sig)
 
-    # After initial reference history (t >= 480), centered gap must be ~0.0 C despite +3.0 C static offset
+    # After initial reference history (t >= 480), centered gap must be ~0.0 despite +3.0 C static offset
+    # In sigma_eff units (where sigma_eff ~ 0.05 C), centered gap mean is << 1 sigma and points < 6 sigma
     scored_gap = feat["gap"].iloc[480:]
-    assert abs(scored_gap.mean()) < 0.05
-    assert (abs(scored_gap) < 0.30).all()
+    assert abs(scored_gap.mean()) < 1.0
+    assert (abs(scored_gap) < 6.0).all()
 
 
 def test_single_sensor_fallback():
